@@ -94,11 +94,16 @@ Hero model built in code (`buildRocket`): gloss clear-coat paint over a 2048px l
 ## Earth
 - Seen only at the start and during the launch flight; fades out before the first planet. Low in frame (bottom third), dawn line across it, India's lights on the night side. Never in planet shots or the finale.
 
-## Performance
-- Quality levels 2/1/0 (`setQuality`): pixel ratio 1.6/1.25/1; bloom full / half resolution / off; grain and lens flare off at 0; cloud and aurora shaders off at 0. Desktops start at 2, phones and tablets at 1, low-end devices (≤4 cores or ≤3 GB) one level lower; any device drops a level if the first frames average under ~38 fps.
-- Resize/rotation: the renderer resizes at once; stop frames, constellation and cue spots rebuild once, 180 ms after it settles. Sound suspends while the tab is hidden; rendering already pauses.
-- Ring and cue shaders are compiled at boot so their first reveal doesn't stutter. Ring textures are 4096 px wide on desktop, 2048 on phones.
-- Sky is baked once into a cube map. Everything is procedural; the only files are the two brand SVGs. The code window redraws its canvas only while its planet is on screen, at most ~12 times a second.
+## Performance and image quality
+- **Everything is prepared behind the loading screen** (`prewarm`): every shader is compiled and every texture uploaded, including objects that only appear later (rocket, Earth, rings, skill objects), and one frame is rendered through the full effects chain. Nothing compiles or uploads mid-tour.
+- **Planet surfaces are baked once** (`bakePlanets`): the procedural noise runs one time per planet into an equirectangular texture (3072 px desktop, 2048 phones; clouds 2048/1024), in strips over several frames. Per frame, planets only sample that texture and compute lighting, rim and gold seams.
+- **Adaptive resolution** (`watchFrameRate`): starts sharp (desktop 1.75x, phones 1.5x, up to the screen's own density, max 2x), checks every second, steps down 15% when below ~48 fps and back up after 3 smooth seconds. Effects only switch off (bloom, flare, clouds, aurora; levels 2/1/0) once resolution is already at 1x.
+- **Anti-aliasing:** 4x multisampling in the composer on desktop; FXAA on phones.
+- **Clean image:** crisp bloom (strength .6, radius .4, threshold .82); colour fringe only during the warp (tiny on desktop, none on phones); light grain on desktop only.
+- Stars are sharp points (6000 desktop / 3400 phones); the baked sky holds only the nebula and galactic band.
+- Text in 3D at 2x where the GPU allows: ring strips 8192 px (4096 on phones), code window 1280 px (640 on phones).
+- Phones: bloom buffers at 40% resolution; the door's light sweep is off. Sound suspends while the tab is hidden; rendering pauses.
+- Media (audio 600 KB, Earth maps 510 KB) loads after the page appears. The only image files are the brand SVGs, Earth maps and the preview image.
 
 ## Never use
 Gradient text, glass cards, emoji, bouncing UI, stock photos, invented metrics, a recoloured or redrawn SKAI wordmark, fonts other than Chakra Petch and Inter.

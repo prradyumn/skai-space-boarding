@@ -6,7 +6,8 @@ import {
   MeshStandardMaterial, AmbientLight, DirectionalLight, MathUtils, Line, LineSegments as LS2, LineLoop,
   LatheGeometry, CylinderGeometry, ConeGeometry, ExtrudeGeometry, TorusGeometry, PointLight,
   WebGLCubeRenderTarget, CubeCamera, InstancedMesh, DodecahedronGeometry, BoxGeometry, Object3D, MeshBasicMaterial, PlaneGeometry, PMREMGenerator,
-  TextureLoader, NoColorSpace, MeshPhysicalMaterial
+  TextureLoader, NoColorSpace, MeshPhysicalMaterial, WebGLRenderTarget, HalfFloatType, OrthographicCamera,
+  LinearMipmapLinearFilter, LinearFilter, RepeatWrapping
 } from 'three';
 import { Lensflare, LensflareElement } from 'three/examples/jsm/objects/Lensflare.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -14,6 +15,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { gsap } from 'gsap';
 
 import { CONFIG, SKILLS } from './config.js';
@@ -542,7 +544,6 @@ function initThree() {
   try {
     renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   } catch (e) { document.body.classList.add('no-webgl'); return false; }
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.6));
   renderer.setSize(innerWidth, innerHeight);
   renderer.toneMapping = ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
   renderer.outputColorSpace = SRGBColorSpace;
@@ -562,8 +563,9 @@ function initThree() {
 }
 
 /* ---------- post-processing: bloom, chromatic fringe, vignette, grain ---------- */
-let composer, bloom, finish, lensflare;
-const Q = { level: 2, samples: [], checked: 0 };
+let composer, bloom, finish, fxaa = null, lensflare;
+// level: which effects are on (2 all, 1 lighter, 0 minimal) · pr: render resolution, adjusted every second to hold the frame rate
+const Q = { level: 2, pr: 1, maxPr: 2, minPr: 1, acc: 0, frames: 0, up: 0, cool: 2, touch: false };
 const FinishShader = {
   uniforms: { tDiffuse: { value: null }, time: { value: 0 }, ca: { value: .0015 }, vig: { value: .42 }, grain: { value: .035 } },
   vertexShader: `varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
@@ -576,23 +578,28 @@ const FinishShader = {
       gl_FragColor=vec4(c,1.);}`
 };
 function buildPost() {
-  composer = new EffectComposer(renderer);
+  const touch = Q.touch = matchMedia('(hover: none)').matches || innerWidth < 760;
+  const weak = (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 3;
+  // anti-aliasing: 4x multisampling on desktop (the composer's own targets), a cheap FXAA pass on phones
+  const msaa = !touch && renderer.capabilities.isWebGL2;
+  composer = new EffectComposer(renderer, new WebGLRenderTarget(innerWidth, innerHeight, { type: HalfFloatType, samples: msaa ? 4 : 0 }));
   composer.addPass(new RenderPass(scene, camera));
-  bloom = new UnrealBloomPass(new Vector2(innerWidth, innerHeight), .7, .55, .78);
+  bloom = new UnrealBloomPass(new Vector2(innerWidth, innerHeight), .6, .4, .82);   // crisper: less radius, higher threshold
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
+  if (!msaa) { fxaa = new ShaderPass(FXAAShader); composer.addPass(fxaa); }
   finish = new ShaderPass(FinishShader); composer.addPass(finish);
-  const touch = matchMedia('(hover: none)').matches || innerWidth < 760;
-  // phones and tablets start at 1; clearly low-end devices (few cores or little memory) start at 0
-  const weak = (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 3;
+  // render resolution: start sharp, then adapt (watchFrameRate)
+  Q.maxPr = Math.min(devicePixelRatio, 2); Q.minPr = Math.min(devicePixelRatio, 1);
+  Q.pr = Math.min(Q.maxPr, touch ? (weak ? 1.25 : 1.5) : weak ? 1.5 : 1.75);
+  renderer.setPixelRatio(Q.pr);
   setQuality(touch ? (weak ? 0 : 1) : weak ? 1 : 2);
 }
+function setPR(pr) { Q.pr = pr; renderer.setPixelRatio(pr); applySize(); }
 function setQuality(l) {
   Q.level = l;
-  const pr = Math.min(devicePixelRatio, l === 2 ? 1.6 : l === 1 ? 1.25 : 1);
-  renderer.setPixelRatio(pr);
-  bloom.enabled = l > 0; bloom.strength = l === 2 ? .7 : .55;
-  finish.uniforms.grain.value = l > 0 ? .035 : 0;
+  bloom.enabled = l > 0; bloom.strength = l === 2 ? .6 : .5;
+  finish.uniforms.grain.value = l === 2 && !Q.touch ? .018 : 0;   // no grain on phones
   if (lensflare) lensflare.visible = l > 0;
   // the cloud and aurora shaders are the most expensive per pixel: drop them at the lowest level
   planets.forEach(p => { if (p.clouds) p.clouds.visible = l > 0; if (p.aurora) p.aurora.visible = l > 0; });
@@ -601,20 +608,31 @@ function setQuality(l) {
 }
 // one place for render sizes: canvas, composer, and bloom (half resolution below the top level)
 function applySize() {
-  const pr = renderer.getPixelRatio(), bs = Q.level === 2 ? 1 : .5;
+  const pr = renderer.getPixelRatio(), bs = Q.touch ? .4 : Q.level === 2 ? 1 : .5;   // bloom buffers: lighter on phones
   renderer.setSize(innerWidth, innerHeight); composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight);
   bloom.setSize(innerWidth * pr * bs, innerHeight * pr * bs);
+  if (fxaa) fxaa.material.uniforms.resolution.value.set(1 / (innerWidth * pr), 1 / (innerHeight * pr));
+  scene.traverse(o => { const u = o.material && o.material.uniforms; if (u && u.pr) u.pr.value = pr; });   // point sprites keep their size
 }
-function watchFrameRate(dt) {
-  if (Q.level === 0 || Q.checked > 3) return;
-  Q.samples.push(dt);
-  if (Q.samples.length < 120) return;
-  const avg = Q.samples.reduce((a, b) => a + b, 0) / Q.samples.length; Q.samples.length = 0; Q.checked++;
-  if (avg > 1 / 38) setQuality(Q.level - 1);
+// adaptive resolution: every second, step down (or up, after 3 smooth seconds) to hold ~50-60 fps;
+// effects only switch off once resolution is already at 1x
+function watchFrameRate(raw) {
+  if (!state.inSpace || raw > .25) return;   // only while the scene runs; ignore tab switches
+  Q.acc += raw; Q.frames++;
+  if (Q.acc < 1) return;
+  const ft = Q.acc / Q.frames; Q.acc = 0; Q.frames = 0;
+  if (Q.cool > 0) { Q.cool--; return; }
+  if (ft > 1 / 48) {
+    if (Q.pr > Q.minPr + .01) setPR(Math.max(Q.minPr, +(Q.pr * .85).toFixed(2)));
+    else if (Q.level > 0) setQuality(Q.level - 1);
+    Q.up = 0; Q.cool = 1;
+  } else if (ft < 1 / 56) {
+    if (++Q.up >= 3 && Q.pr < Q.maxPr - .01) { setPR(Math.min(Q.maxPr, +(Q.pr + .15).toFixed(2))); Q.up = 0; Q.cool = 1; }
+  } else Q.up = 0;
 }
 
 function buildStars() {
-  const n = innerWidth < 760 ? 2600 : 4200, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), size = new Float32Array(n), tw = new Float32Array(n);
+  const n = innerWidth < 760 ? 3400 : 6000, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), size = new Float32Array(n), tw = new Float32Array(n);
   const r = mulberry(3), palette = [new Color('#ffffff'), new Color('#cfe0ff'), new Color('#9cc3ff'), new Color('#ffd9b0')];
   for (let i = 0; i < n; i++) {
     const u = r() * 2 - 1, th = r() * Math.PI * 2, rad = 700 + r() * 700, s = Math.sqrt(1 - u * u);
@@ -666,9 +684,7 @@ function buildNebula() {
         col+=vec3(.030,.026,.024)*exp(-gd*gd/.003)*(1.-lanes);
         float sd=max(dot(d,sun),0.);
         col+=vec3(1.,.55,.25)*pow(sd,14.)*.05+vec3(1.,.42,.18)*pow(sd,4.)*.004;
-        vec3 cell=floor(d*700.);float h=h31(cell);
-        float dens=.0005+bandN*.004;
-        col+=step(1.-dens,h)*mix(vec3(.75,.82,1.),vec3(1.,.85,.7),h31(cell+7.))*(.05+.3*h31(cell+3.));
+        // stars are drawn as sharp points (buildStars), not baked into this texture
         gl_FragColor=vec4(col,1.);
       }`,
     side: BackSide, depthWrite: false
@@ -785,11 +801,10 @@ function buildIndiaLights() {
 
 function buildClouds(p, i) {
   const m = new ShaderMaterial({
-    uniforms: { sunDir: { value: p.mat.uniforms.sunDir.value }, time: { value: 0 }, seed: { value: i * 7.1 + 3 } },
-    vertexShader: `varying vec3 vP;varying vec3 vWN;varying vec3 vV;void main(){vP=position;vec4 wp=modelMatrix*vec4(position,1.);vWN=normalize(mat3(modelMatrix)*normal);vV=normalize(cameraPosition-wp.xyz);gl_Position=projectionMatrix*viewMatrix*wp;}`,
-    fragmentShader: NOISE + `uniform vec3 sunDir;uniform float time,seed;varying vec3 vP;varying vec3 vWN;varying vec3 vV;
-      void main(){vec3 p=normalize(vP);float n=fbm(p*3.2+vec3(seed,0.,time*.01));n+=.5*fbm(p*9.+seed);
-        float a=smoothstep(.18,.75,n)*.85;float l=smoothstep(-.15,.7,dot(vWN,sunDir));float edge=smoothstep(0.,.35,dot(vWN,vV));
+    uniforms: { sunDir: { value: p.mat.uniforms.sunDir.value }, time: { value: 0 }, density: { value: null }, seed: { value: i * 7.1 + 3 } },
+    vertexShader: `varying vec2 vUv;varying vec3 vWN;varying vec3 vV;void main(){vUv=uv;vec4 wp=modelMatrix*vec4(position,1.);vWN=normalize(mat3(modelMatrix)*normal);vV=normalize(cameraPosition-wp.xyz);gl_Position=projectionMatrix*viewMatrix*wp;}`,
+    fragmentShader: `uniform vec3 sunDir;uniform sampler2D density;varying vec2 vUv;varying vec3 vWN;varying vec3 vV;
+      void main(){float a=texture2D(density,vUv).r;float l=smoothstep(-.15,.7,dot(vWN,sunDir));float edge=smoothstep(0.,.35,dot(vWN,vV));
         gl_FragColor=vec4(vec3(.95,.97,1.)*(.04+l*1.1),a*edge*(.15+.85*l));
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -799,38 +814,67 @@ function buildClouds(p, i) {
   const c = new Mesh(new SphereGeometry(p.v.r * 1.02, 64, 48), m); p.group.add(c); p.clouds = c;
 }
 
+// the original procedural surface, now run once per planet into an equirectangular texture
+const PLANET_SURFACE = /* glsl */`
+  uniform vec3 c1,c2,c3;uniform float seed,scale,bands,bandMix,rock,swirl,kin;
+  vec3 rot(vec3 p,vec3 a,float g){return p*cos(g)+cross(a,p)*sin(g)+a*dot(a,p)*(1.-cos(g));}
+  vec4 surface(vec3 p){
+    if(swirl>0.){vec3 vc=normalize(vec3(.55,-.28,.79));float vd=distance(p,vc);p=rot(p,vc,swirl*pow(max(0.,1.-vd/.42),2.)*3.2);}
+    float n=fbm(p*scale+seed+swirl*vec3(fbm(p*1.7))*.8);
+    float b=sin(p.y*bands+n*3.2+seed)*.5+.5;float t=mix(n*.62+.5,b,bandMix);
+    vec3 col=mix(c1,c2,smoothstep(.2,.62,t));col=mix(col,c3,smoothstep(.6,.95,t));
+    if(rock>.5){float cr=1.-abs(snoise(p*7.+seed));col*=.72+.5*pow(cr,6.);float m2=snoise(p*18.+seed);col*=.9+.12*m2;}
+    float seam=0.;if(kin>.5){float k1=1.-smoothstep(0.,.03,abs(snoise(p*2.6+seed*1.7)));float mask=smoothstep(-.1,.35,snoise(p*1.3+seed+4.));seam=k1*mask;}
+    return vec4(col,seam);
+  }`;
+// uv -> the same direction three's SphereGeometry uses for that uv
+const UV_DIR = /* glsl */`vec3 uvDir(vec2 uv){float th=(1.-uv.y)*3.14159265;float ph=uv.x*6.28318531;return vec3(-cos(ph)*sin(th),cos(th),sin(ph)*sin(th));}`;
+async function bakePlanets(onStep) {
+  const big = !Q.touch && renderer.capabilities.maxTextureSize >= 4096;
+  const W = big ? 3072 : 2048, CW = big ? 2048 : 1024, strips = Q.touch ? 4 : 2;
+  const sc = new Scene(), cam = new OrthographicCamera(-1, 1, 1, -1, 0, 1), quad = new Mesh(new PlaneGeometry(2, 2)); sc.add(quad);
+  const vs = `varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}`;
+  const target = w => new WebGLRenderTarget(w, w / 2, { generateMipmaps: true, minFilter: LinearMipmapLinearFilter, magFilter: LinearFilter, wrapS: RepeatWrapping, anisotropy: 8, depthBuffer: false });
+  // render in horizontal strips, one per frame, so a slow phone GPU never stalls for long
+  const bake = async (rt, material) => {
+    quad.material = material; const h = Math.ceil(rt.height / strips);
+    for (let k = 0; k < strips; k++) { rt.scissor.set(0, k * h, rt.width, h); rt.scissorTest = true; renderer.setRenderTarget(rt); renderer.render(sc, cam); await nextFrame(); }
+    rt.scissorTest = false; renderer.setRenderTarget(null); material.dispose();
+  };
+  for (let i = 0; i < planets.length; i++) {
+    const p = planets[i], rt = target(W);
+    await bake(rt, new ShaderMaterial({ uniforms: p.surf, vertexShader: vs,
+      fragmentShader: NOISE + PLANET_SURFACE + UV_DIR + `varying vec2 vUv;void main(){vec4 s=surface(uvDir(vUv));gl_FragColor=vec4(pow(max(s.rgb,0.),vec3(1./2.2)),s.a);}` }));
+    p.mat.uniforms.albedo.value = rt.texture;
+    if (p.clouds) {
+      const ct = target(CW);
+      await bake(ct, new ShaderMaterial({ uniforms: { seed: p.clouds.material.uniforms.seed }, vertexShader: vs,
+        fragmentShader: NOISE + UV_DIR + `uniform float seed;varying vec2 vUv;void main(){vec3 p=uvDir(vUv);float n=fbm(p*3.2+vec3(seed,0.,0.));n+=.5*fbm(p*9.+seed);gl_FragColor=vec4(vec3(smoothstep(.18,.75,n)*.85),1.);}` }));
+      p.clouds.material.uniforms.density.value = ct.texture;
+    }
+    if (onStep) onStep(i);
+  }
+  quad.geometry.dispose();
+}
+
 function buildPlanets() {
   CONFIG.values.forEach((v, i) => {
     const group = new Group(); group.position.set(...v.pos);
     const sunDir = LIGHT.clone().sub(group.position).normalize();
+    // surface colours are baked into a texture at load (bakePlanets); per frame only lighting, rim and seams are computed
+    const surf = {
+      c1: { value: new Color(v.c[0]) }, c2: { value: new Color(v.c[1]) }, c3: { value: new Color(v.c[2]) },
+      seed: { value: i * 13.7 + 2 }, scale: { value: v.scale }, bands: { value: v.bands }, bandMix: { value: v.bandMix }, rock: { value: v.rock },
+      swirl: { value: v.swirl || 0 }, kin: { value: v.rock ? 1 : 0 }
+    };
     const mat = new ShaderMaterial({
-      uniforms: {
-        c1: { value: new Color(v.c[0]) }, c2: { value: new Color(v.c[1]) }, c3: { value: new Color(v.c[2]) }, rimC: { value: new Color(v.atmo) },
-        seed: { value: i * 13.7 + 2 }, scale: { value: v.scale }, bands: { value: v.bands }, bandMix: { value: v.bandMix }, rock: { value: v.rock },
-        sunDir: { value: sunDir }, time: { value: 0 }, swirl: { value: v.swirl || 0 }, kin: { value: v.rock ? 1 : 0 }
-      },
-      vertexShader: `varying vec3 vP;varying vec3 vWN;varying vec3 vV;
-        void main(){vP=position;vec4 wp=modelMatrix*vec4(position,1.);vWN=normalize(mat3(modelMatrix)*normal);vV=normalize(cameraPosition-wp.xyz);gl_Position=projectionMatrix*viewMatrix*wp;}`,
-      fragmentShader: NOISE + `
-        uniform vec3 c1,c2,c3,rimC,sunDir;uniform float seed,scale,bands,bandMix,rock,time,swirl,kin;
-        vec3 rot(vec3 p,vec3 a,float g){return p*cos(g)+cross(a,p)*sin(g)+a*dot(a,p)*(1.-cos(g));}varying vec3 vP;varying vec3 vWN;varying vec3 vV;
+      uniforms: { albedo: { value: null }, rimC: { value: new Color(v.atmo) }, sunDir: { value: sunDir }, time: { value: 0 } },
+      vertexShader: `varying vec2 vUv;varying vec3 vWN;varying vec3 vV;
+        void main(){vUv=uv;vec4 wp=modelMatrix*vec4(position,1.);vWN=normalize(mat3(modelMatrix)*normal);vV=normalize(cameraPosition-wp.xyz);gl_Position=projectionMatrix*viewMatrix*wp;}`,
+      fragmentShader: `uniform sampler2D albedo;uniform vec3 rimC,sunDir;varying vec2 vUv;varying vec3 vWN;varying vec3 vV;
         void main(){
-          vec3 p=normalize(vP);
-          if(swirl>0.){
-            p=rot(p,vec3(0.,1.,0.),time*.035*(1.+p.y*p.y*3.));
-            vec3 vc=normalize(vec3(.55,-.28,.79));float vd=distance(p,vc);
-            p=rot(p,vc,swirl*pow(max(0.,1.-vd/.42),2.)*(3.2+sin(time*.3)*.4));
-          }
-          float n=fbm(p*scale+seed+vec3(0.,0.,time*.004)+swirl*vec3(fbm(p*1.7+time*.02))*.8);
-          float b=sin(p.y*bands+n*3.2+seed)*.5+.5;
-          float t=mix(n*.62+.5,b,bandMix);
-          vec3 col=mix(c1,c2,smoothstep(.2,.62,t));
-          col=mix(col,c3,smoothstep(.6,.95,t));
-          if(rock>.5){float cr=1.-abs(snoise(p*7.+seed));col*=.72+.5*pow(cr,6.);float m2=snoise(p*18.+seed);col*=.9+.12*m2;}
-          float d=dot(vWN,sunDir);
-          float light=smoothstep(-.18,.75,d);
-          float seam=0.;
-          if(kin>.5){float k1=1.-smoothstep(0.,.03,abs(snoise(p*2.6+seed*1.7)));float mask=smoothstep(-.1,.35,snoise(p*1.3+seed+4.));seam=k1*mask;}
+          vec4 a=texture2D(albedo,vUv);vec3 col=pow(a.rgb,vec3(2.2));float seam=a.a;
+          float d=dot(vWN,sunDir);float light=smoothstep(-.18,.75,d);
           float rim=pow(1.-max(dot(vWN,vV),0.),2.6);
           col=col*(.05+light*1.3)+rimC*rim*(.06+light*.75)*.8;
           vec3 gold=vec3(1.,.7,.26);col=mix(col,gold*(.35+light*1.5),seam*.9);col+=gold*seam*(1.-light)*1.6;
@@ -869,7 +913,7 @@ function buildPlanets() {
       const ring = new Mesh(rg, rm); ring.rotation.x = -Math.PI / 2 + .38; ring.rotation.y = .22; group.add(ring);
     }
     scene.add(group);
-    planets.push({ group, body, atmo, mat, atmoMat, v, spin: .02 + i * .006 });
+    planets.push({ group, body, atmo, mat, surf, atmoMat, v, spin: .02 + i * .006 });
   });
   planets.forEach((p, i) => { if (p.v.rock) buildBelt(p); if (p.v.clouds) buildClouds(p, i); if (p.v.aurora) buildAurora(p); if (p.v.moons) buildMoons(p); });
 }
@@ -1085,7 +1129,8 @@ function cueNeural(sk) {
 
 // coding: a code window (header dots like the SKAI coding timer) that types a short Python mission, plus drifting glyphs
 function cueTerminal(sk) {
-  const g = new Group(), cv = document.createElement('canvas'); cv.width = 640; cv.height = 420;
+  const k2 = innerWidth < 760 ? 1 : 2;   // the code window draws at 2x on desktop
+  const g = new Group(), cv = document.createElement('canvas'); cv.width = 640 * k2; cv.height = 420 * k2;
   const x = cv.getContext('2d'), tex = new CanvasTexture(cv); tex.colorSpace = SRGBColorSpace;
   const C = { k: '#45CDB5', f: '#17BDE0', s: '#FCA01B', p: '#F7FBFF', c: '#7895B5' };
   const code = [
@@ -1102,7 +1147,7 @@ function cueTerminal(sk) {
     const shown = Math.floor(((Math.max(0, t) * 22) % (total + 40)));
     const key = Math.min(shown, total) * 2 + ((t * 2.2 | 0) % 2);
     if (key === last) return; last = key;
-    x.clearRect(0, 0, 640, 420);
+    x.setTransform(k2, 0, 0, k2, 0, 0); x.clearRect(0, 0, 640, 420);
     x.fillStyle = 'rgba(6,28,30,.86)'; x.strokeStyle = '#18AC6A'; x.lineWidth = 4;
     x.beginPath(); x.roundRect(4, 4, 632, 412, 14); x.fill(); x.stroke();
     x.fillStyle = '#108D55'; x.beginPath(); x.roundRect(6, 6, 628, 50, [12, 12, 0, 0]); x.fill();
@@ -1228,12 +1273,13 @@ function ringTexture(i, sk, w, h) {
   return t;
 }
 function buildRings() {
-  const small = innerWidth < 760;
+  // ring lettering at 2x where the GPU allows (8192 px strip), 4096 on phones
+  const rw = innerWidth < 760 || renderer.capabilities.maxTextureSize < 8192 ? 4096 : 8192;
   CONFIG.values.forEach((v, i) => {
     const sk = SKILLS[v.skill]; if (!sk) return;
     const R = v.r * (v.ring ? 1.3 : 1.36), H = v.r * .14;
     const mat = new ShaderMaterial({
-      uniforms: { map: { value: ringTexture(i + 1, sk, small ? 2048 : 4096, small ? 32 : 64) }, rev: { value: 0 }, u0: { value: 0 }, op: { value: 0 }, head: { value: new Color(sk.ink) } },
+      uniforms: { map: { value: ringTexture(i + 1, sk, rw, rw / 64) }, rev: { value: 0 }, u0: { value: 0 }, op: { value: 0 }, head: { value: new Color(sk.ink) } },
       vertexShader: `varying vec2 vUv;varying float vF;void main(){vUv=uv;vec4 wp=modelMatrix*vec4(position,1.);vec3 n=normalize(mat3(modelMatrix)*normal);vF=dot(n,normalize(cameraPosition-wp.xyz));gl_Position=projectionMatrix*viewMatrix*wp;}`,
       fragmentShader: `uniform sampler2D map;uniform float rev,u0,op;uniform vec3 head;varying vec2 vUv;varying float vF;
         void main(){float a=fract(vUv.x-u0);float show=1.-smoothstep(rev-.012,rev,a);
@@ -1309,7 +1355,7 @@ function buildEarth() {
   earth = { g, mat, op: 0, ready: false };
   const loader = new TextureLoader(); let n = 0;
   ['day', 'night', 'clouds'].forEach((k, i) => loader.load(assetUrl(EARTH.maps[i]), t => {
-    t.colorSpace = k === 'clouds' ? NoColorSpace : SRGBColorSpace; t.anisotropy = 4; mat.uniforms[k].value = t;
+    t.colorSpace = k === 'clouds' ? NoColorSpace : SRGBColorSpace; t.anisotropy = 8; mat.uniforms[k].value = t; renderer.initTexture(t);
     if (++n === 3) earth.ready = true;
   }, undefined, () => {}));   // if the maps can't load, Earth simply stays hidden
 }
@@ -1748,7 +1794,7 @@ function updateCamera(dt, t) {
 function frame(now) {
   requestAnimationFrame(frame);
   if (!state.rendering || document.hidden) { clock.last = now; return; }
-  const dt = Math.min(.05, (now - clock.last) / 1000); clock.last = now; clock.t += dt;
+  const raw = (now - clock.last) / 1000, dt = Math.min(.05, raw); clock.last = now; clock.t += dt;
   const t = clock.t;
   stars.material.uniforms.time.value = t;
   planets.forEach((p, i) => {
@@ -1772,8 +1818,8 @@ function frame(now) {
   updateEarth(dt, t);
   if (constel && constel.group.visible) { constel.sm.uniforms.prog.value = constel.prog; constel.sm.uniforms.time.value = t; constel.lg.setDrawRange(0, Math.floor(constel.prog * constel.n)); }
   finish.uniforms.time.value = t;
-  finish.uniforms.ca.value = .001 + state.warp * .012 + (leg ? .0012 : 0);
-  watchFrameRate(dt);
+  finish.uniforms.ca.value = (Q.touch ? 0 : .0004) + state.warp * .012 + (leg ? .0005 : 0);   // fringe mostly for the warp only
+  watchFrameRate(raw);
   composer.render();
 }
 
@@ -2021,6 +2067,18 @@ function initInput() {
 /* =====================================================================
    BOOT
    ===================================================================== */
+// compile every shader and upload every texture now (behind the loading screen), including things that are hidden
+// until later (rocket, Earth, rings, skill objects), then render one frame through the whole effects chain.
+// Otherwise each would compile and upload on first appearance, which is the stutter at the door and the launch.
+async function prewarm() {
+  const hidden = []; scene.traverse(o => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+  try { await renderer.compileAsync(scene, camera); } catch (e) { renderer.compile(scene, camera); }
+  const seen = new Set(), up = t => { if (t && t.isTexture && !seen.has(t)) { seen.add(t); renderer.initTexture(t); } };
+  scene.traverse(o => { const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+    ms.forEach(m => { for (const k in m) up(m[k]); if (m.uniforms) for (const k in m.uniforms) up(m.uniforms[k].value); }); });
+  composer.render();
+  hidden.forEach(o => { o.visible = false; });
+}
 const nextFrame = () => new Promise(r => { requestAnimationFrame(() => r()); setTimeout(r, 120); });
 function bootStep(p, label) {
   const bar = $('#bootBar'); if (!bar) return;
@@ -2031,14 +2089,14 @@ async function boot() {
   bootStep(.3, 'Loading star charts'); await nextFrame();
   $('#srValues').innerHTML = '<h2>SKAI Space</h2><p>2040. The jobs of tomorrow don’t have names yet. How do you prepare for a world no one can map?</p>' + CONFIG.values.map(v => `<p>${SKILLS[v.skill] ? SKILLS[v.skill].name + ': ' : ''}${v.line.join(' ')}</p>`).join('') + '<p><a href="' + CONFIG.ctaUrl + '">Visit skaispace.ai</a></p>';
   const ok = initThree();
-  bootStep(.7, 'Calibrating optics'); await nextFrame();
+  bootStep(.45, 'Charting planets'); await nextFrame();
   if (ok) {
+    await bakePlanets(i => bootStep(.45 + (i + 1) / planets.length * .3, 'Charting planets'));
     state.fovBase = isPortrait() ? 50 : 38;
     camera.fov = state.fovBase; camera.updateProjectionMatrix();
     state.intro = 0; current = 0; updateCamera(0, 0); current = -1; camera.updateMatrixWorld();
-    rings.forEach(R => { if (R) R.mesh.visible = true; }); earth.g.visible = true;
-    renderer.compile(scene, camera);
-    rings.forEach(R => { if (R) R.mesh.visible = false; }); earth.g.visible = false;
+    bootStep(.8, 'Calibrating optics'); await nextFrame();
+    await prewarm();
     requestAnimationFrame(frame);
   } else {
     state.rendering = false;
