@@ -284,6 +284,13 @@ body.finale #sound{opacity:0;pointer-events:none}
 .bf-g-dot{display:block;width:16px;height:16px;border-radius:50%;background:var(--bg);border:2px solid var(--g);transition:background .3s,box-shadow .3s}
 .bf-g.lit .bf-g-dot{background:var(--g);box-shadow:0 0 14px var(--g)}
 .bf-g-name{color:var(--g);font-size:12px;letter-spacing:.16em;margin-top:2px}
+/* typewriter: the invisible full text fixes the size; the typed layer sits exactly over it */
+.tw{position:relative}
+.tw .sz{visibility:hidden}
+.tw .ty{position:absolute;inset:0;padding:inherit;white-space:normal}
+.bf-g-name.tw .ty{white-space:nowrap}
+.tw .gl{font-style:normal;color:var(--g);opacity:.9}
+.tw .cur{display:inline-block;width:.55em;height:1.05em;margin-left:2px;vertical-align:-.16em;background:var(--g);box-shadow:0 0 10px var(--g)}
 .bf-sks{list-style:none;display:flex;flex-direction:column;gap:7px;width:100%}
 .bf-sk{font-family:var(--body);font-weight:500;font-size:clamp(12.5px,1.2vw,16px);line-height:1.28;color:var(--ink);padding:9px 11px;border-left:2px solid var(--g);background:rgba(184,216,244,.06);border-radius:0 4px 4px 0}
 @media (max-width:760px){ #brief{height:min(470px,72vh)} .bf-jobs{grid-template-columns:1fr;gap:6px} }

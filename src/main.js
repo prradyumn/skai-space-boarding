@@ -441,9 +441,14 @@ function runBriefing(done) {
   SKILL_GROUPS.forEach((grp, k) => {
     const at = gStart + k * gStep, li = `#bfGroups > li:nth-child(${k + 1})`;
     tl.fromTo(`${li} .bf-g-dot`, { scale: 0 }, { scale: 1, duration: .5, ease: 'expo.out' }, at)
-      .fromTo(`${li} .bf-g-name`, { y: 10, opacity: 0 }, { y: 0, opacity: 1, duration: .55, ease: 'expo.out' }, at + .05)
-      .fromTo(`${li} .bf-sk`, { y: 14, opacity: 0, scale: .96 }, { y: 0, opacity: 1, scale: 1, duration: .6, stagger: .07, ease: 'expo.out' }, at + .12)
       .add(() => { $(li).classList.add('lit'); Sound.blip(700 + k * 120, .09, 'sine', .04); }, at + .1);
+    typeIn(tl, $(`${li} .bf-g-name`), at + .05, .32);
+    // each chip slides in as an empty plate, then its text types in
+    $$(`${li} .bf-sk`).forEach((el, j) => {
+      const t0 = at + .18 + j * .2;
+      tl.fromTo(el, { x: -10, opacity: 0 }, { x: 0, opacity: 1, duration: .35, ease: 'expo.out' }, t0);
+      typeIn(tl, el, t0 + .08, Math.min(.85, .1 + el.dataset.text.length * .026));
+    });
   });
   const tEnd = Math.max(gStart + SKILL_GROUPS.length * gStep + 1.4, t5 + tr + .7);
   tl.to('.bf-sk', { boxShadow: '0 0 0 1px rgba(255,255,255,.35), 0 0 18px rgba(23,189,224,.35)', duration: .35, yoyo: true, repeat: 1, stagger: .03 }, tEnd - 1.1)
@@ -475,8 +480,29 @@ function fitTrack() {
 }
 // the answer to the briefing's question: 10 skills in 5 groups along a route (columns on wide screens, a list on phones)
 function buildSkillsArt() {
-  $('#bfGroups').innerHTML = SKILL_GROUPS.map(g => `<li class="bf-g" style="--g:${g.color}"><i class="bf-g-dot"></i><span class="mono bf-g-name">${g.name}</span>`
-    + `<ul class="bf-sks">${g.skills.map(n => `<li class="bf-sk">${n}</li>`).join('')}</ul></li>`).join('');
+  // .sz holds the full text invisibly (fixes each chip's size); .ty is the typed layer drawn over it
+  const typed = (cls, text, tag) => `<${tag} class="${cls} tw" data-text="${text}" aria-label="${text}"><span class="sz">${text}</span><span class="ty" aria-hidden="true"></span></${tag}>`;
+  $('#bfGroups').innerHTML = SKILL_GROUPS.map(g => `<li class="bf-g" style="--g:${g.color}"><i class="bf-g-dot"></i>${typed('mono bf-g-name', g.name, 'span')}`
+    + `<ul class="bf-sks">${g.skills.map(n => typed('bf-sk', n, 'li')).join('')}</ul></li>`).join('');
+}
+// futuristic typewriter: letters lock in left to right, two glyphs flicker just ahead, a block cursor leads and then blinks out
+const TW_GLYPHS = '01<>/{}[]#*+=';
+function typeIn(tl, el, at, dur) {
+  if (!el) return;
+  const text = el.dataset.text, ty = el.querySelector('.ty'), o = { p: 0 };
+  const draw = () => {
+    const n = Math.floor(o.p * text.length), ahead = o.p < 1 ? Math.min(2, text.length - n) : 0;
+    let s = text.slice(0, n).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    for (let i = 0; i < ahead; i++) s += `<i class="gl">${TW_GLYPHS[(Math.random() * TW_GLYPHS.length) | 0].replace('<', '&lt;')}</i>`;
+    ty.innerHTML = s + (o.p < 1 || o.blink ? '<b class="cur"></b>' : '');
+  };
+  if (REDUCED) { tl.add(() => { o.p = 1; draw(); }, at); return; }
+  tl.add(() => { o.p = 0; draw(); }, at)
+    .to(o, { p: 1, duration: dur, ease: 'none', onUpdate: draw }, at)
+    .add(() => { o.blink = true; draw(); }, at + dur)
+    .add(() => { o.blink = false; draw(); }, at + dur + .18)
+    .add(() => { o.blink = true; draw(); }, at + dur + .36)
+    .add(() => { o.blink = false; draw(); }, at + dur + .54);
 }
 
 function setScan(v) {
