@@ -1002,7 +1002,7 @@ function buildPlanets() {
     scene.add(group);
     planets.push({ group, body, atmo, mat, surf, atmoMat, v, spin: .02 + i * .006 });
   });
-  planets.forEach((p, i) => { if (p.v.rock) buildBelt(p); if (p.v.clouds) buildClouds(p, i); if (p.v.aurora) buildAurora(p); if (p.v.moons) buildMoons(p); });
+  planets.forEach((p, i) => { if (p.v.rock && p.v.belt !== false) buildBelt(p); if (p.v.clouds) buildClouds(p, i); if (p.v.aurora) buildAurora(p); if (p.v.moons) buildMoons(p); });
 }
 
 function buildWarp() {
@@ -1327,50 +1327,81 @@ function cueGears(sk) {
   };
   return g;
 }
-// electronics: a circuit board; current pulses run along the traces into a chip, the LED lights
+// electronics: a detailed circuit board (signal buses, components, gold pads, SKAI chip); current runs into the chip, the LED lights
 function cueCircuit(sk) {
-  const g = new Group(), body = new Group(); body.rotation.set(-.38, .42, .04); g.add(body);
-  const W = 1.3, H = .95, cv = document.createElement('canvas'); cv.width = 512; cv.height = 376; const x = cv.getContext('2d');
-  const px = p => [(p[0] / W + .5) * 512, (.5 - p[1] / H) * 376];
-  const paths = [[[-.6, .3], [-.3, .3], [-.3, .1], [-.15, .1]], [[-.6, -.24], [-.38, -.24], [-.38, -.06], [-.15, -.06]], [[.6, .32], [.34, .32], [.34, .1], [.15, .1]],
-    [[.6, -.3], [.28, -.3], [.28, -.08], [.15, -.08]], [[-.05, .42], [-.05, .15]], [[.05, -.42], [.05, -.15]]];
-  x.fillStyle = '#0a3324'; x.fillRect(0, 0, 512, 376);
-  x.strokeStyle = 'rgba(69,205,181,.09)'; x.lineWidth = 1;
-  for (let i = 0; i <= 512; i += 16) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i, 376); x.stroke(); }
-  for (let j = 0; j <= 376; j += 16) { x.beginPath(); x.moveTo(0, j); x.lineTo(512, j); x.stroke(); }
+  const g = new Group(), body = new Group(); body.rotation.set(-.42, .4, .03); g.add(body);
+  const W = 1.4, H = 1.0, CW = 1024, CH = Math.round(1024 * H / W), cv = document.createElement('canvas'); cv.width = CW; cv.height = CH; const x = cv.getContext('2d');
+  const px = p => [(p[0] / W + .5) * CW, (.5 - p[1] / H) * CH];
+  const paths = [[[-.64, .34], [-.34, .34], [-.34, .12], [-.17, .12]], [[-.64, -.3], [-.42, -.3], [-.42, -.07], [-.17, -.07]], [[.64, .36], [.38, .36], [.38, .12], [.17, .12]],
+    [[.64, -.34], [.3, -.34], [.3, -.07], [.17, -.07]], [[-.07, .46], [-.07, .17]], [[.07, -.46], [.07, -.17]]];
+  // board: deep green with a soft vignette and a fine grid
+  const bg = x.createRadialGradient(CW / 2, CH / 2, 40, CW / 2, CH / 2, CW * .7); bg.addColorStop(0, '#0f4a34'); bg.addColorStop(1, '#062418');
+  x.fillStyle = bg; x.fillRect(0, 0, CW, CH);
+  x.strokeStyle = 'rgba(69,205,181,.07)'; x.lineWidth = 1;
+  for (let i = 0; i <= CW; i += 24) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i, CH); x.stroke(); }
+  for (let j = 0; j <= CH; j += 24) { x.beginPath(); x.moveTo(0, j); x.lineTo(CW, j); x.stroke(); }
   x.lineCap = 'round'; x.lineJoin = 'round';
+  // signal buses: bundles of thin parallel traces along the edges
+  const bus = (x0, y0, x1, y1, n, dx, dy) => { x.strokeStyle = 'rgba(216,181,106,.55)'; x.lineWidth = 3; for (let k = 0; k < n; k++) { x.beginPath(); x.moveTo(x0 + dx * k, y0 + dy * k); x.lineTo(x1 + dx * k, y1 + dy * k); x.stroke(); } };
+  bus(80, 60, 420, 60, 5, 0, 12); bus(600, CH - 60, 950, CH - 60, 5, 0, -12); bus(CW - 60, 120, CW - 60, 300, 4, -12, 0);
+  // main traces with gold pads
   paths.forEach(pt => {
-    x.strokeStyle = '#d8b56a'; x.lineWidth = 7; x.beginPath(); pt.forEach((p, i) => { const [a, b] = px(p); i ? x.lineTo(a, b) : x.moveTo(a, b); }); x.stroke();
-    const [a, b] = px(pt[0]); x.fillStyle = '#ecd08c'; x.beginPath(); x.arc(a, b, 11, 0, 7); x.fill(); x.fillStyle = '#0a3324'; x.beginPath(); x.arc(a, b, 4.5, 0, 7); x.fill();
+    x.strokeStyle = '#e0bd6e'; x.lineWidth = 11; x.beginPath(); pt.forEach((p, i) => { const [a, b] = px(p); i ? x.lineTo(a, b) : x.moveTo(a, b); }); x.stroke();
+    x.strokeStyle = 'rgba(255,240,200,.5)'; x.lineWidth = 3; x.beginPath(); pt.forEach((p, i) => { const [a, b] = px(p); i ? x.lineTo(a, b) : x.moveTo(a, b); }); x.stroke();
+    const [a, b] = px(pt[0]); x.fillStyle = '#f0d48e'; x.beginPath(); x.arc(a, b, 19, 0, 7); x.fill(); x.fillStyle = '#062418'; x.beginPath(); x.arc(a, b, 7, 0, 7); x.fill();
   });
-  x.strokeStyle = '#18AC6A'; x.lineWidth = 8; x.strokeRect(4, 4, 504, 368);
+  // chip footprint pads and vias
+  x.fillStyle = 'rgba(240,212,142,.9)';
+  for (let k = 0; k < 6; k++) { const o = CW / 2 - 100 + k * 40; x.fillRect(o - 7, CH / 2 - 168, 14, 26); x.fillRect(o - 7, CH / 2 + 142, 14, 26); }
+  for (let k = 0; k < 40; k++) { const a = 60 + Math.random() * (CW - 120), b = 60 + Math.random() * (CH - 120); if (Math.abs(a - CW / 2) < 200 && Math.abs(b - CH / 2) < 200) continue; x.fillStyle = '#d8b56a'; x.beginPath(); x.arc(a, b, 5, 0, 7); x.fill(); x.fillStyle = '#062418'; x.beginPath(); x.arc(a, b, 2, 0, 7); x.fill(); }
+  // silkscreen labels and outlines
+  x.fillStyle = 'rgba(247,251,255,.72)'; x.font = '600 26px "Chakra Petch", Arial, sans-serif';
+  x.fillText('SKAI-1 · REV 03', 60, CH - 40); x.fillText('U1', CW / 2 - 150, CH / 2 - 120); x.fillText('R2', 150, CH / 2 + 10); x.fillText('C4', CW - 200, CH / 2 + 10); x.fillText('D1', CW - 150, 120);
+  x.strokeStyle = 'rgba(247,251,255,.5)'; x.lineWidth = 2; x.strokeRect(CW / 2 - 130, CH / 2 - 130, 260, 260);
+  x.strokeStyle = '#18AC6A'; x.lineWidth = 14; x.strokeRect(7, 7, CW - 14, CH - 14);
   const tex = new CanvasTexture(cv); tex.colorSpace = SRGBColorSpace; tex.anisotropy = 8;
+  if (document.fonts) document.fonts.ready.then(() => { tex.needsUpdate = true; });
   const edge = cueMat(0x0d3a28, 0x041a10, .3, .2, .6);
-  const board = new Mesh(new BoxGeometry(W, H, .05), [edge, edge, edge, edge, new MeshStandardMaterial({ map: tex, roughness: .5, metalness: .25 }), edge]); body.add(board);
+  const board = new Mesh(new BoxGeometry(W, H, .06), [edge, edge, edge, edge, new MeshStandardMaterial({ map: tex, roughness: .45, metalness: .3 }), edge]); body.add(board);
+  // soft green underglow, so the board reads as powered
+  const under = glowSprite(new Color('#18AC6A'), 2.2); under.position.z = -.12; body.add(under);
+  // chip with the SKAI mark on its face
   const chip = new Group(); body.add(chip);
-  chip.add(new Mesh(new BoxGeometry(.3, .3, .07), cueMat(0x12172a, 0x000000, 0, .45, .3)));
-  const pinM = cueMat(0xd4dcec, 0x222222, .1, .95, .2);
-  for (let s = 0; s < 4; s++) for (let k = 0; k < 4; k++) {
-    const p = new Mesh(new BoxGeometry(.028, .06, .02), pinM), o = -.105 + k * .07;
-    if (s < 2) { p.position.set(o, s ? .175 : -.175, -.01); } else { p.rotation.z = Math.PI / 2; p.position.set(s === 2 ? .175 : -.175, o, -.01); }
+  const cc = document.createElement('canvas'); cc.width = cc.height = 256; const y = cc.getContext('2d');
+  y.fillStyle = '#121729'; y.fillRect(0, 0, 256, 256); y.strokeStyle = 'rgba(184,216,244,.25)'; y.lineWidth = 4; y.strokeRect(14, 14, 228, 228);
+  y.fillStyle = '#F7FBFF'; y.font = '700 64px "Chakra Petch", Arial, sans-serif'; y.textAlign = 'center'; y.textBaseline = 'middle'; y.fillText('SKAI', 128, 116);
+  y.fillStyle = sk.ink; y.font = '600 26px "Chakra Petch", Arial, sans-serif'; y.fillText('SK-1 CORE', 128, 170); y.beginPath(); y.arc(40, 40, 10, 0, 7); y.fill();
+  const ct = new CanvasTexture(cc); ct.colorSpace = SRGBColorSpace;
+  if (document.fonts) document.fonts.ready.then(() => { y.clearRect(0, 0, 256, 256); y.fillStyle = '#121729'; y.fillRect(0, 0, 256, 256); y.strokeStyle = 'rgba(184,216,244,.25)'; y.strokeRect(14, 14, 228, 228); y.fillStyle = '#F7FBFF'; y.font = '700 64px "Chakra Petch", Arial, sans-serif'; y.fillText('SKAI', 128, 116); y.fillStyle = sk.ink; y.font = '600 26px "Chakra Petch", Arial, sans-serif'; y.fillText('SK-1 CORE', 128, 170); y.beginPath(); y.arc(40, 40, 10, 0, 7); y.fill(); ct.needsUpdate = true; });
+  const dark = cueMat(0x12172a, 0x000000, 0, .45, .3);
+  chip.add(new Mesh(new BoxGeometry(.36, .36, .08), [dark, dark, dark, dark, new MeshStandardMaterial({ map: ct, roughness: .35, metalness: .4 }), dark]));
+  const pinM = cueMat(0xe3e9f4, 0x222222, .1, .95, .18);
+  for (let s = 0; s < 4; s++) for (let k = 0; k < 6; k++) {
+    const p = new Mesh(new BoxGeometry(.022, .06, .018), pinM), o = -.15 + k * .06;
+    if (s < 2) p.position.set(o, s ? .205 : -.205, -.012); else { p.rotation.z = Math.PI / 2; p.position.set(s === 2 ? .205 : -.205, o, -.012); }
     chip.add(p);
   }
-  const mark = new Mesh(new BoxGeometry(.07, .07, .01), new MeshBasicMaterial({ color: new Color(sk.ink) })); mark.position.set(.07, .07, .04); chip.add(mark);
-  const cap = new Mesh(new CylinderGeometry(.07, .07, .16, 24), cueMat(0x17355F, 0x091C56, .3, .4, .35)); cap.rotation.x = Math.PI / 2; cap.position.set(-.46, -.36, .1); body.add(cap);
-  const ledM = new MeshBasicMaterial({ color: new Color('#FEE714') }), led = new Mesh(new SphereGeometry(.05, 16, 12), ledM); led.position.set(.48, .37, .06); body.add(led);
-  const ledGlow = glowSprite(new Color('#FEE714'), .42); ledGlow.position.copy(led.position); body.add(ledGlow);
-  // one pulse per trace, running from the pad into the chip
+  // small surface-mount parts: resistors and capacitors
+  const smd = [[-.5, .02, 0xD9D2C3], [-.46, -.14, 0x2a2f45], [.5, .02, 0xD9D2C3], [.46, .2, 0x2a2f45], [-.2, .38, 0xD9D2C3], [.2, -.38, 0x2a2f45]].map(([a, b, c]) => {
+    const m = new Mesh(new BoxGeometry(.09, .045, .035), cueMat(c, 0x000000, 0, .3, .5)); m.position.set(a, b, .045); body.add(m); return m;
+  });
+  const cap = new Mesh(new CylinderGeometry(.075, .075, .18, 28), cueMat(0x17355F, 0x091C56, .3, .4, .35)); cap.rotation.x = Math.PI / 2; cap.position.set(-.5, -.38, .11); body.add(cap);
+  const capTop = new Mesh(new CylinderGeometry(.075, .075, .01, 28), cueMat(0xd4dcec, 0x111111, .1, .9, .2)); capTop.rotation.x = Math.PI / 2; capTop.position.set(-.5, -.38, .205); body.add(capTop);
+  const ledM = new MeshBasicMaterial({ color: new Color('#FEE714') }), led = new Mesh(new SphereGeometry(.055, 16, 12), ledM); led.position.set(.52, .4, .07); body.add(led);
+  const ledGlow = glowSprite(new Color('#FEE714'), .5); ledGlow.position.copy(led.position); body.add(ledGlow);
+  // two pulses per trace, running from the pad into the chip
   const lens = paths.map(pt => { let L = 0; for (let i = 1; i < pt.length; i++) L += Math.hypot(pt[i][0] - pt[i - 1][0], pt[i][1] - pt[i - 1][1]); return L; });
-  const pulses = paths.map(() => { const s = glowSprite(new Color('#7CFFE0'), .16); body.add(s); return s; });
-  const along = (k, f, out) => { const pt = paths[k]; let d = f * lens[k]; for (let i = 1; i < pt.length; i++) { const l = Math.hypot(pt[i][0] - pt[i - 1][0], pt[i][1] - pt[i - 1][1]); if (d <= l || i === pt.length - 1) { const u = Math.min(1, d / l); out.set(pt[i - 1][0] + (pt[i][0] - pt[i - 1][0]) * u, pt[i - 1][1] + (pt[i][1] - pt[i - 1][1]) * u, .045); return; } d -= l; } };
+  const pulses = []; paths.forEach((pt, k) => { for (let r = 0; r < 2; r++) { const s = glowSprite(new Color('#8CFFE4'), .2); body.add(s); pulses.push({ s, k, off: r * .5 + k * .13 }); } });
+  const along = (k, f, out) => { const pt = paths[k]; let d = f * lens[k]; for (let i = 1; i < pt.length; i++) { const l = Math.hypot(pt[i][0] - pt[i - 1][0], pt[i][1] - pt[i - 1][1]); if (d <= l || i === pt.length - 1) { const u = Math.min(1, d / l); out.set(pt[i - 1][0] + (pt[i][0] - pt[i - 1][0]) * u, pt[i - 1][1] + (pt[i][1] - pt[i - 1][1]) * u, .05); return; } d -= l; } };
   g.userData.tick = (dt, t) => {
     const b = g.userData.build, sb = stage(b, 0, .3);
-    board.scale.set(Math.max(.001, sb), Math.max(.001, stage(b, .06, .3)), 1);
-    const sc = stage(b, .3, .28); chip.visible = sc > .001; chip.position.z = .06 + .6 * (1 - sc); cap.visible = sc > .5;
+    board.scale.set(Math.max(.001, sb), Math.max(.001, stage(b, .06, .3)), 1); under.material.opacity = .35 * stage(b, .5, .3);
+    smd.forEach((m, i) => { m.visible = b > .3 + i * .03; });
+    const sc = stage(b, .3, .28); chip.visible = sc > .001; chip.position.z = .07 + .6 * (1 - sc); cap.visible = capTop.visible = sc > .5;
     const on = stage(b, .55, .25);
-    pulses.forEach((s, k) => { along(k, (t * .55 + k * .19) % 1, s.position); s.material.opacity = on * .95; });
+    pulses.forEach(P => { along(P.k, (t * .5 + P.off) % 1, P.s.position); P.s.material.opacity = on; });
     const lit = stage(b, .72, .15); ledM.color.set('#FEE714').multiplyScalar(.25 + .75 * lit);
-    ledGlow.material.opacity = lit * (.65 + .35 * Math.sin(t * 7)) + 1.4 * flash(b, .74);
+    ledGlow.material.opacity = lit * (.7 + .3 * Math.sin(t * 7)) + 1.4 * flash(b, .74);
   };
   return g;
 }
@@ -1415,34 +1446,55 @@ function cueBulb(sk) {
   };
   return g;
 }
-// entrepreneurship: a growing bar chart, a rising arrow, and coins
+// entrepreneurship: glowing glass bars on a holographic grid, a rising arrow, and a stack of gold coins
 function cueChart(sk) {
-  const g = new Group(), body = new Group(); body.rotation.set(-.26, -.5, 0); g.add(body);
-  const plate = new Mesh(new BoxGeometry(1.25, .05, .5), cueMat(0x17355F, 0x091C56, .3, .5, .4)); plate.position.y = -.47; body.add(plate);
-  const cols = ['#3B2F9E', '#5b4fd1', '#707CEC', '#A9B1FF'], hs = [.32, .52, .74, 1.0], xs = [-.43, -.145, .145, .43];
+  const g = new Group(), body = new Group(); body.rotation.set(-.2, -.45, 0); g.add(body);
+  // holographic backplate: grid, axes and faint guide lines (no numbers)
+  const cv = document.createElement('canvas'); cv.width = 512; cv.height = 400; const x = cv.getContext('2d');
+  x.strokeStyle = 'rgba(169,177,255,.18)'; x.lineWidth = 1;
+  for (let i = 0; i <= 512; i += 32) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i, 400); x.stroke(); }
+  for (let j = 0; j <= 400; j += 32) { x.beginPath(); x.moveTo(0, j); x.lineTo(512, j); x.stroke(); }
+  x.strokeStyle = 'rgba(169,177,255,.7)'; x.lineWidth = 3; x.beginPath(); x.moveTo(24, 16); x.lineTo(24, 376); x.lineTo(500, 376); x.stroke();
+  [100, 180, 260].forEach(yy => { x.strokeStyle = 'rgba(169,177,255,.35)'; x.setLineDash([6, 8]); x.beginPath(); x.moveTo(24, yy); x.lineTo(500, yy); x.stroke(); });
+  const gt = new CanvasTexture(cv); gt.colorSpace = SRGBColorSpace;
+  const grid = new Mesh(new PlaneGeometry(1.45, 1.13), new MeshBasicMaterial({ map: gt, transparent: true, depthWrite: false, blending: AdditiveBlending, toneMapped: false }));
+  grid.position.set(.02, .08, -.2); body.add(grid);
+  const floor = new Mesh(new BoxGeometry(1.3, .04, .46), cueMat(0x17355F, 0x091C56, .35, .5, .4)); floor.position.y = -.47; body.add(floor);
+  // bars: translucent violet glass with a bright cap, rising left to right
+  const cols = ['#4B3FB5', '#5b4fd1', '#707CEC', '#A9B1FF'], hs = [.3, .5, .72, .98], xs = [-.45, -.15, .15, .45];
   const bars = hs.map((h, i) => {
     const geo = new BoxGeometry(.2, h, .2); geo.translate(0, h / 2, 0);
-    const c = new Color(cols[i]), m = new Mesh(geo, cueMat(c, c, .4, .3, .35)); m.position.set(xs[i], -.445, 0); body.add(m); return m;
+    const c = new Color(cols[i]);
+    const m = new Mesh(geo, new MeshPhysicalMaterial({ color: c, emissive: c, emissiveIntensity: .55, metalness: .1, roughness: .15, clearcoat: 1, transparent: true, opacity: .82 }));
+    m.position.set(xs[i], -.45, 0); body.add(m);
+    const capM = new MeshBasicMaterial({ color: new Color('#E6E9FF'), toneMapped: false }), cap = new Mesh(new BoxGeometry(.205, .022, .205), capM);
+    cap.position.y = h; m.add(cap);
+    return m;
   });
-  const tops = xs.map((x, i) => new Vector3(x, -.445 + hs[i] + .14, .02));
-  const path = new CatmullRomCurve3([tops[0].clone().add(new Vector3(-.12, -.06, 0)), ...tops, tops[3].clone().add(new Vector3(.13, .14, 0))]);
+  // rising arrow over the bar tops, drawn left to right
+  const tops = xs.map((xx, i) => new Vector3(xx, -.45 + hs[i] + .12, .03));
+  const path = new CatmullRomCurve3([tops[0].clone().add(new Vector3(-.14, -.08, 0)), ...tops, tops[3].clone().add(new Vector3(.16, .16, 0))]);
   const arrowM = new MeshBasicMaterial({ color: new Color('#FEE714'), toneMapped: false });
-  const arrow = new Mesh(new TubeGeometry(path, 96, .02, 8), arrowM); body.add(arrow);
+  const arrow = new Mesh(new TubeGeometry(path, 120, .018, 10), arrowM); body.add(arrow);
   const total = arrow.geometry.index.count;
-  const head = new Mesh(new ConeGeometry(.055, .14, 16), arrowM); body.add(head);
-  const end = path.getPointAt(1), tan = path.getTangentAt(1);
-  head.position.copy(end); head.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), tan);
-  const coinM = new MeshStandardMaterial({ color: 0xF5C542, emissive: 0x5a3a00, emissiveIntensity: .5, metalness: .9, roughness: .25 });
-  const coins = [0, 1, 2].map(k => { const c = new Mesh(new CylinderGeometry(.085, .085, .022, 32), coinM); c.rotation.x = Math.PI / 2; body.add(c); return c; });
+  const head = new Mesh(new ConeGeometry(.06, .15, 20), arrowM); body.add(head);
+  head.position.copy(path.getPointAt(1)); head.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), path.getTangentAt(1));
+  const headGlow = glowSprite(new Color('#FEE714'), .4); headGlow.position.copy(head.position); body.add(headGlow);
+  // coins: bright gold with a raised rim; they stack beside the tallest bar, the last one flips into place
+  const goldM = new MeshStandardMaterial({ color: 0xFFC94A, emissive: 0xB97A00, emissiveIntensity: .55, metalness: .85, roughness: .28 });
+  const coinGeo = new CylinderGeometry(.11, .11, .034, 40), rimGeo = new TorusGeometry(.11, .012, 8, 40);
+  const coins = [0, 1, 2, 3].map(k => { const c = new Group(); c.add(new Mesh(coinGeo, goldM)); const r = new Mesh(rimGeo, goldM); r.rotation.x = Math.PI / 2; c.add(r); c.position.set(.76, -.43 + k * .04, .05); body.add(c); return c; });
   g.userData.tick = (dt, t) => {
     const b = g.userData.build;
-    plate.scale.x = Math.max(.001, stage(b, 0, .25));
-    bars.forEach((m, i) => { m.scale.y = Math.max(.001, stage(b, .12 + i * .1, .3)); });
-    const pa = stage(b, .55, .3); arrow.geometry.setDrawRange(0, Math.floor(total * pa / 3) * 3); head.visible = pa > .97;
+    floor.scale.x = Math.max(.001, stage(b, 0, .22));
+    const gp = stage(b, .05, .3); grid.material.opacity = gp * .9; grid.scale.y = Math.max(.001, gp);
+    bars.forEach((m, i) => { m.scale.y = Math.max(.001, stage(b, .14 + i * .1, .3)); });
+    const pa = stage(b, .56, .28); arrow.geometry.setDrawRange(0, Math.floor(total * pa / 3) * 3); head.visible = pa > .97;
+    headGlow.material.opacity = (pa > .97 ? .8 : 0) * (.75 + .25 * Math.sin(t * 4)) + 1.2 * flash(b, .86);
     coins.forEach((c, k) => {
-      const s = stage(b, .82 + k * .05, .15), ph = t * .8 + k * 2.1;
-      c.visible = s > .01; c.scale.setScalar(Math.max(.001, s));
-      c.position.set(.62 + Math.sin(ph) * .06, .2 + k * .2 + Math.sin(ph * 1.3) * .05, .1); c.rotation.y = t * 2.2 + k;
+      const s = stage(b, .7 + k * .06, .12); c.visible = s > .01;
+      c.position.y = -.43 + k * .04 + (1 - s) * .5;            // drop onto the stack
+      c.rotation.z = k === 3 ? Math.sin(t * 1.6) * .25 : 0;      // the top coin keeps a gentle rock
     });
   };
   return g;
@@ -1834,10 +1886,22 @@ function buildPath() {
     hoverPos.clone().add(new Vector3(-8, 3, 80)), hoverPos.clone().addScaledVector(hoverFwd, -10).add(new Vector3(-3, -2, 0)), hoverPos.clone()
   ], false, 'centripetal');
 }
+const _arc = new Vector3();
 function stopCam(i, t, oP, oL) {
   const fr = frames[Math.max(0, i)]; oP.copy(fr.pos); oL.copy(fr.look);
   const r = i > 0 && i < N_STOPS - 1 ? CONFIG.values[i - 1].r : 4;
   oP.x += Math.sin(t * .13) * r * .22; oP.y += Math.sin(t * .09 + 1) * r * .1;
+  const dwell = leg ? 0 : Math.max(0, t - (state.stopT || 0));   // seconds since arriving at this stop
+  if (!REDUCED && i >= 1 && i <= CONFIG.values.length) {
+    // at a planet: a slow push-in and a small arc around it while the tagline is up
+    const k = 1 - Math.exp(-dwell / 4), P = planets[i - 1].group.position;
+    _arc.copy(oP).sub(P).applyAxisAngle(UP, (i % 2 ? 1 : -1) * .06 * k); oP.copy(P).add(_arc);
+    oP.lerp(oL, .07 * k);
+  } else if (i === N_STOPS - 1) {
+    // finale crane-up: the camera starts low and rises to the fitted frame while the route draws
+    const k = REDUCED ? 1 : smoother(0, 4.6, dwell);
+    oP.y -= (1 - k) * fr.pos.distanceTo(fr.look) * .16;
+  }
 }
 
 /* ---------- finale: the route, completed ----------
@@ -1954,10 +2018,14 @@ const SHOTS = {
   front: { n: '04', label: 'Reverse', fn: (p, l, P, f) => { p.copy(P).addScaledVector(f, 22).addScaledVector(_u, 3.5).addScaledVector(_r, 5); l.copy(P).addScaledVector(f, -3); } },
   orbit: { n: '05', label: 'Orbit', fn: (p, l, P, f, t) => { const a = t * .75; p.copy(P).addScaledVector(_r, Math.cos(a) * 19).addScaledVector(f, -Math.sin(a) * 19).addScaledVector(_u, 5.5); l.copy(P); } },
   flyby: { n: '06', label: 'Flyby', fn: (p, l, P, f, t, L) => { p.copy(L.flyby); l.copy(P); } },
-  tilt: { n: '07', label: 'Tilt follow', fn: (p, l, P, f, t, L) => { p.copy(L.camPos).lerp(P, .12); l.copy(P).addScaledVector(f, 3); } }
+  tilt: { n: '07', label: 'Tilt follow', fn: (p, l, P, f, t, L) => { p.copy(L.camPos).lerp(P, .12); l.copy(P).addScaledVector(f, 3); } },
+  // launch: low and behind, looking up along the climb with Earth's curve below
+  hero: { n: '08', label: 'Hero launch', fn: (p, l, P, f) => { p.copy(P).addScaledVector(f, -15).addScaledVector(_u, -9).addScaledVector(_r, 4.5); l.copy(P).addScaledVector(f, 12).addScaledVector(_u, 2.5); } },
+  sideL: { n: '09', label: 'Side track (left)', fn: (p, l, P, f) => { p.copy(P).addScaledVector(_r, -22).addScaledVector(_u, 3).addScaledVector(f, -4); l.copy(P).addScaledVector(f, 2); } }
 };
-const PLAN = { 0: 'chase', 1: 'tilt', 2: 'side', 3: 'orbit', 4: 'flyby', 5: 'front' };
-const SWOOP = [[0, -10, 0], [0, 12, 0], [0, -14, 4], [12, 10, 0], [-12, -12, 0], [0, 18, 0], [0, 22, 0]];
+// one shot type per flight (keyed by destination), varied so the six legs never feel repeated
+const PLAN = { 0: 'chase', 1: 'hero', 2: 'side', 3: 'chase', 4: 'flyby', 5: 'orbit', 6: 'sideL', 7: 'front' };
+const SWOOP = [[0, -10, 0], [0, 12, 0], [0, -14, 4], [12, 10, 0], [-12, -12, 0], [0, 18, 0], [10, -10, 0], [0, 20, 0]];
 
 let leg = null;
 const _dp = new Vector3(), _dl = new Vector3(), _sp = new Vector3(), _sl = new Vector3();
@@ -1984,6 +2052,7 @@ function startLeg(to) {
 }
 const pad = n => String(n).padStart(2, '0');
 const smooth = (a, b, x) => { const t = MathUtils.clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const smoother = (a, b, x) => { const t = MathUtils.clamp((x - a) / (b - a), 0, 1); return t * t * t * (t * (6 * t - 15) + 10); };
 
 function updateLeg(dt, t) {
   const L = leg; L.el += dt;
@@ -1996,7 +2065,9 @@ function updateLeg(dt, t) {
   SHOTS[L.shot].fn(_dp, _dl, R.pos, R.fwd, t, L);
   // the tagline starts rising while the planet is still approaching
   if (ul >= .85 && L.to >= 1 && L.to <= CONFIG.values.length) showTagline(L.to);   // once the camera has mostly settled into the planet's framing
-  const wIn = smooth(0, .24, ul), wOut = smooth(.68, 1, ul);
+  // softer blends: ease out of the last framing, and glide (not snap) into the planet's framing
+  const wIn = smoother(0, .3, ul), wOut = smoother(.58, 1, ul);
+  state.camRoll = REDUCED ? 0 : Math.sin(ul * Math.PI) * (L.bank > 0 ? 1 : -1) * .07;   // a gentle bank with the turn
   _dp.lerpVectors(L.camPos, _dp, wIn); _dl.lerpVectors(L.camLook, _dl, wIn);
   stopCam(L.to, t, _sp, _sl);
   _dp.lerp(_sp, wOut); _dl.lerp(_sl, wOut);
@@ -2014,7 +2085,7 @@ function arrive() {
   if (i === 0) R.mode = 'hover';
   else if (i === N_STOPS - 1) R.mode = 'route';
   else { R.mode = 'orbit'; R.orbitIdx = i; R.ang = L.end.ang; }
-  state.fovPunch = 0; state.legWarp = 0;
+  state.fovPunch = 0; state.legWarp = 0; state.camRoll = 0; state.stopT = clock.t;
   bird.visible = i === 0; bird.userData.u = .56; bird.userData.hist.length = 0;
   onArrive(i);
 }
@@ -2077,6 +2148,7 @@ function updateCamera(dt, t) {
   camera.position.addScaledVector(_right, state.mx * 2.2 * par).addScaledVector(_up2, -state.my * 1.4 * par);
   if (state.shake > .001) camera.position.add(_o.set(Math.random() - .5, Math.random() - .5, Math.random() - .5).multiplyScalar(state.shake * .45));
   camera.lookAt(_dl);
+  if (state.camRoll) camera.rotateZ(state.camRoll);
   const fov = state.fovBase + state.warp * 30 + (state.fovPunch || 0);
   if (Math.abs(camera.fov - fov) > .01) { camera.fov = fov; camera.updateProjectionMatrix(); }
 }

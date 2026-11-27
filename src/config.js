@@ -37,7 +37,8 @@ export const CONFIG = {
   // DRAFT lines (need sign-off): Electronics "Every circuit / starts with a spark." · Design "Imagine it. / Then build it."
   // The rest is the planet's look; atmo is its glow colour.
   values: [
-    { line: ['Not a lab.', 'A launchpad.'], skill: 'mechanics',
+    // belt: false drops the asteroid belt; cueSpot sets the gears in clear sky below the planet (decluttered opener)
+    { line: ['Not a lab.', 'A launchpad.'], skill: 'mechanics', belt: false, cueSpot: { land: { nx: .8, ny: -.5, h: .22 } },
       c: ['#17110f', '#6e4a3c', '#d2ad95'], atmo: '#FCA01B', r: 7, pos: [-16, 3, -70], scale: 3.6, bands: 0, bandMix: 0, rock: 1 },
     { line: ['Every circuit', 'starts with a spark.'], skill: 'electronics',
       c: ['#032820', '#13a37d', '#cbffea'], atmo: '#45CDB5', r: 9, pos: [24, -5, -150], scale: 2.1, bands: 6, bandMix: .3, rock: 0, ring: true },
