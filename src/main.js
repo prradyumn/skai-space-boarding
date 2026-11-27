@@ -21,6 +21,8 @@ import { gsap } from 'gsap';
 import { CONFIG, SKILLS } from './config.js';
 
 const KIOSK = location.hash === '#kiosk';
+// ?capture: fixed full quality for recording the promo video frame by frame (no adaptive resolution)
+const CAPTURE = new URLSearchParams(location.search).has('capture');
 // the offline single-file build embeds its media and lists it here (see scripts/build-single.mjs)
 const assetUrl = u => (window.SKAI_ASSETS && window.SKAI_ASSETS[u]) || u;
 const $ = s => document.querySelector(s);
@@ -603,8 +605,9 @@ function buildPost() {
   // render resolution: start sharp, then adapt (watchFrameRate)
   Q.maxPr = Math.min(devicePixelRatio, touch ? 2 : 1.75); Q.minPr = Math.min(devicePixelRatio, 1);
   Q.pr = Math.min(Q.maxPr, touch ? (weak ? 1.25 : 1.5) : weak ? 1.5 : 1.75);
+  if (CAPTURE) Q.pr = Q.maxPr;
   renderer.setPixelRatio(Q.pr);
-  setQuality(touch ? (weak ? 0 : 1) : weak ? 1 : 2);
+  setQuality(CAPTURE ? 2 : touch ? (weak ? 0 : 1) : weak ? 1 : 2);
 }
 function setPR(pr) { Q.pr = pr; renderer.setPixelRatio(pr); applySize(); }
 function setQuality(l) {
@@ -628,6 +631,7 @@ function applySize() {
 // adaptive resolution: every second, step down (or up, after 3 smooth seconds) to hold ~50-60 fps;
 // effects only switch off once resolution is already at 1x
 function watchFrameRate(raw) {
+  if (CAPTURE) return;
   if (!state.rendering || raw > .25) return;   // from the door opening on; ignore tab switches
   Q.acc += raw; Q.frames++;
   if (Q.acc < 1) return;
