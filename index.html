@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050b22">
+<title>SKAI Space · Boarding Sequence</title>
+<meta name="description" content="SKAI Space: scan in, open the bay door, and fly past the planets. Not a lab. A launchpad.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<!-- link previews (the build fills __SITE_URL__ with the deployed address so the image URL is absolute) -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="SKAI Space · Not a lab. A launchpad.">
+<meta property="og:description" content="Scan in, open the bay door, and fly past the skills we teach: robotics, AI and data, coding and mechanics.">
+<meta property="og:image" content="__SITE_URL__/og.jpg">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<!-- fonts are self-hosted (public/fonts, OFL), so the page makes no third-party requests -->
+<link rel="preload" href="fonts/chakra-petch-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/chakra-petch-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+<!--
+  DESIGN NOTES (SKAI design system, from the Skai-Design Figma file)
+  Type: Chakra Petch (headings, labels, buttons) × Inter (body).
+  Palette: royal #0A2D94 · deep navy #091C56 · navy #17355F · orange #FCA01B · amber #F5A524 · yellow #FEE714
+           mint #45CDB5 · cyan #17BDE0 · deep teal #096B5B · light sky #B8D8F4 · steel #86A9CC
+  Skill colours live in src/config.js (SKILLS). Buttons are bolted plates with a heavy white border.
+  Motion: expo/power ease only, no bounce. Reduced motion = cuts and fades.
+-->
+<style>
+@font-face{font-family:"Chakra Petch";font-style:normal;font-weight:500;font-display:swap;src:url("fonts/chakra-petch-latin-500-normal.woff2") format("woff2")}
+@font-face{font-family:"Chakra Petch";font-style:normal;font-weight:600;font-display:swap;src:url("fonts/chakra-petch-latin-600-normal.woff2") format("woff2")}
+@font-face{font-family:"Chakra Petch";font-style:normal;font-weight:700;font-display:swap;src:url("fonts/chakra-petch-latin-700-normal.woff2") format("woff2")}
+@font-face{font-family:"Inter";font-style:normal;font-weight:400;font-display:swap;src:url("fonts/inter-latin-400-normal.woff2") format("woff2")}
+@font-face{font-family:"Inter";font-style:normal;font-weight:500;font-display:swap;src:url("fonts/inter-latin-500-normal.woff2") format("woff2")}
+@font-face{font-family:"Inter";font-style:normal;font-weight:600;font-display:swap;src:url("fonts/inter-latin-600-normal.woff2") format("woff2")}
+:root{
+  /* SKAI palette */
+  --white:#FFFFFF; --ghost:#F7FBFF; --sky:#B8D8F4; --steel:#86A9CC; --slate:#7895B5; --periwinkle:#707CEC;
+  --royal:#0A2D94; --navy:#17355F; --deep-navy:#091C56; --near-black:#060606;
+  --yellow:#FEE714; --pale-gold:#FBEBA8; --amber:#F5A524; --orange:#FCA01B; --dark-orange:#B96D00;
+  --mint:#45CDB5; --cyan:#17BDE0; --teal:#096B5B; --green:#18AC6A;
+  /* roles */
+  --bg:#050b22; --ink:var(--ghost); --muted:var(--steel); --line:rgba(184,216,244,.16); --line-2:rgba(184,216,244,.32);
+  --accent:var(--orange); --ok:var(--green); --pa:var(--orange);
+  --sk:var(--orange); --sk-from:var(--orange); --sk-to:var(--amber); --sk-ink:var(--orange);
+  --head:"Chakra Petch", "Inter", system-ui, sans-serif;
+  --body:"Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ease:cubic-bezier(.16,1,.3,1);
+  /* safe areas (notches, home bar) and the letterbox height, which JS sets from the visible height */
+  --sat:env(safe-area-inset-top,0px); --sar:env(safe-area-inset-right,0px); --sab:env(safe-area-inset-bottom,0px); --sal:env(safe-area-inset-left,0px);
+  --lbh:11vh;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--ink);font-family:var(--body);-webkit-font-smoothing:antialiased;}
+body{touch-action:none;user-select:none;-webkit-user-select:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+:focus-visible{outline:2px solid var(--yellow);outline-offset:3px}
+/* labels / data: Chakra Petch, uppercase */
+.mono{font-family:var(--head);font-weight:600;font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;z-index:0}
+body.no-webgl #gl{display:none}
+body.no-webgl{background:radial-gradient(1200px 700px at 70% 30%,#0A2D94 0%,transparent 60%),radial-gradient(900px 600px at 10% 90%,#096B5B 0%,transparent 60%),var(--bg)}
+
+/* ---------- viewport frame (corner ticks) ---------- */
+.frame{position:fixed;inset:14px;pointer-events:none;z-index:40}
+.frame i{position:absolute;width:14px;height:14px;border-color:var(--line-2);border-style:solid;border-width:0}
+.frame i:nth-child(1){left:0;top:0;border-left-width:1px;border-top-width:1px}
+.frame i:nth-child(2){right:0;top:0;border-right-width:1px;border-top-width:1px}
+.frame i:nth-child(3){left:0;bottom:0;border-left-width:1px;border-bottom-width:1px}
+.frame i:nth-child(4){right:0;bottom:0;border-right-width:1px;border-bottom-width:1px}
+
+/* ---------- blast door ---------- */
+#door{position:fixed;inset:0;z-index:50;pointer-events:none;--D:26px}
+.door-half{position:absolute;top:0;bottom:0;width:calc(50% + var(--D));overflow:hidden;will-change:transform;pointer-events:auto}
+.door-half.l{left:0;z-index:1}
+.door-half.r{right:0;z-index:2}
+.door-face{position:absolute;inset:0}
+.door-half.r .door-face{transform:scaleX(-1)}
+.door-face .art{position:absolute;inset:0}
+.door-face .art svg{display:block}
+.door-face .sweep{position:absolute;inset:-20% 0;background:linear-gradient(100deg,transparent 42%,rgba(184,216,244,.05) 50%,transparent 58%);animation:sweep 8s linear infinite;mix-blend-mode:screen;pointer-events:none}
+@keyframes sweep{from{transform:translateX(-60%)}to{transform:translateX(60%)}}
+.led{animation:led 2.4s linear infinite}
+@keyframes led{0%,100%{opacity:.18}12%{opacity:1}30%{opacity:.18}}
+.blink{animation:blink 1.6s steps(1) infinite}
+@keyframes blink{50%{opacity:.15}}
+.stencil{position:absolute;left:clamp(24px,4vw,56px);bottom:clamp(96px,13vh,140px);color:rgba(247,251,255,.38);line-height:1.9;font-size:10px}
+.stencil b{display:block;font-family:var(--head);font-weight:700;font-size:clamp(28px,4vw,56px);letter-spacing:.01em;color:rgba(247,251,255,.08);text-transform:uppercase;line-height:1;margin-top:6px}
+.door-light{position:absolute;inset:0;pointer-events:none;z-index:3;
+  background:radial-gradient(circle at 50% 50%,rgba(23,189,224,.10),transparent 34%),radial-gradient(120% 80% at 50% 110%,rgba(252,160,27,.10),transparent 50%),radial-gradient(140% 110% at 50% 50%,transparent 55%,rgba(0,0,0,.55))}
+.bulk{position:absolute;left:0;right:0;height:52px;z-index:4;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:0 clamp(18px,3vw,40px);color:rgba(247,251,255,.55);
+  background:linear-gradient(180deg,#17355F,#091C56);box-shadow:0 0 0 1px rgba(184,216,244,.08),0 14px 40px rgba(0,0,0,.6)}
+.bulk b{color:var(--cyan);font-weight:600}
+.bulk.top{top:0;border-bottom:1px solid rgba(23,189,224,.35)}
+.bulk.top:after{content:"";position:absolute;left:0;right:0;bottom:-3px;height:2px;background:repeating-linear-gradient(90deg,rgba(23,189,224,.7) 0 18px,transparent 18px 30px);opacity:.55}
+.bulk.bot{bottom:0;border-top:1px solid rgba(252,160,27,.35)}
+.bulk .hz{flex:1;max-width:28vw;height:14px;background:repeating-linear-gradient(-45deg,rgba(252,160,27,.85) 0 10px,#091C56 10px 20px);opacity:.75}
+.bulk .lamps{display:flex;gap:8px}
+.bulk .lamps i{width:8px;height:8px;border-radius:50%;background:var(--amber);box-shadow:0 0 8px var(--amber)}
+.bulk .lamps i.c{background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+.bulk .lamps i.r{background:#ff4d4d;box-shadow:0 0 8px #ff4d4d;animation:blink 1.2s steps(1) infinite}
+@media (max-width:760px){.bulk .mono{display:none}.bulk.top .mono:first-child{display:block}.bulk{height:44px}.bulk .hz{max-width:none}.stencil{display:none}}
+body.granted .bulk .lamps i.r{background:var(--ok);box-shadow:0 0 8px var(--ok);animation:none}
+#flash{position:fixed;inset:0;z-index:49;pointer-events:none;opacity:0;background:radial-gradient(60% 70% at 50% 50%,rgba(220,236,255,.9),rgba(10,45,148,.3) 50%,transparent 80%)}
+
+/* ---------- lock + biometric ---------- */
+#lock{position:fixed;left:50%;top:50%;width:min(360px,74vw);aspect-ratio:1;transform:translate(-50%,-50%);z-index:60}
+#lock svg.rings{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+#core{position:absolute;left:50%;top:50%;width:46%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;
+  background:radial-gradient(circle at 50% 40%,#17355F,#091C56 70%);box-shadow:inset 0 0 0 1px rgba(23,189,224,.3),inset 0 0 30px rgba(23,189,224,.12),0 0 0 10px rgba(5,11,34,.8),0 0 40px rgba(23,189,224,.15);
+  display:grid;place-items:center;overflow:hidden;touch-action:none;-webkit-tap-highlight-color:transparent}
+#core .glyph{width:44%;color:var(--ink);transition:opacity .4s var(--ease)}
+#core .fp{position:absolute;inset:9%;width:82%;height:82%;opacity:0}
+#core .fp path{fill:none;stroke:var(--cyan);stroke-width:1.35;stroke-linecap:round}
+#core .scanline{position:absolute;left:8%;right:8%;height:2px;top:50%;opacity:0;background:linear-gradient(90deg,transparent,#B8D8F4,transparent);box-shadow:0 0 14px 2px rgba(23,189,224,.6)}
+#core.granted .fp path{stroke:var(--ok)}
+.core-pulse{position:absolute;inset:-1px;border-radius:50%;border:1px solid var(--accent);opacity:0;pointer-events:none}
+.lock-caption{position:absolute;left:50%;top:calc(100% + 26px);transform:translateX(-50%);white-space:nowrap;text-align:center}
+.lock-caption .t1{color:var(--ink);font-size:12px}
+.lock-caption .t2{color:var(--muted);margin-top:8px}
+.lock-caption .t1 .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:10px;vertical-align:1px;box-shadow:0 0 10px var(--accent)}
+.lock-title{position:absolute;left:50%;bottom:calc(100% + 34px);transform:translateX(-50%);text-align:center;white-space:nowrap}
+.lock-title .k{color:var(--muted)}
+.lock-title h2{font-family:var(--head);font-weight:700;font-size:clamp(20px,2.4vw,28px);letter-spacing:.01em;margin-top:8px}
+.readout{position:absolute;left:calc(100% + 48px);top:50%;transform:translateY(-50%);width:260px;color:var(--muted);line-height:2.1}
+.readout li{list-style:none;opacity:0;transform:translateX(-6px)}
+.readout li.on{opacity:1;transform:none;transition:all .5s var(--ease)}
+.readout li b{color:var(--ink);font-weight:600}
+.readout li.ok b{color:var(--ok)}
+@media (max-width:900px){ .readout{left:50%;top:calc(100% + 92px);transform:translateX(-50%);width:min(320px,86vw);line-height:1.9;text-align:center} }
+/* small phones: smaller lock so the title, caption and readout all fit */
+@media (max-height:700px) and (max-aspect-ratio:9/10){ #lock{width:min(300px,64vw)} .lock-title{bottom:calc(100% + 22px)} .readout{top:calc(100% + 76px);line-height:1.7} }
+/* phone landscape: lock sized by height, readout beside it */
+@media (max-height:500px) and (min-aspect-ratio:9/10){ #lock{width:min(220px,46vh)} .lock-title{bottom:calc(100% + 12px)} .lock-title h2{font-size:18px;margin-top:4px} .lock-caption{top:calc(100% + 10px)} .lock-caption .t2{display:none}
+  .readout{left:calc(100% + 36px);top:50%;transform:translateY(-50%);width:230px;text-align:left;line-height:1.7} #skip{bottom:calc(10px + var(--sab))} .bulk{height:38px} }
+#skip{position:fixed;right:calc(28px + var(--sar));bottom:calc(66px + var(--sab));z-index:61;color:var(--muted);padding:10px 4px}
+#skip:hover{color:var(--ink)}
+/* narrow screens: the scan readout sits under the lock, so the skip link moves up under the top bar */
+@media (max-width:760px) and (max-aspect-ratio:9/10){ #skip{top:calc(50px + var(--sat));bottom:auto;right:calc(14px + var(--sar))} }
+
+/* ---------- HUD: SKAI logo plate + sound pill (sits above the letterbox) ---------- */
+.hud{position:fixed;z-index:20;opacity:0;pointer-events:none}
+.hud.show{opacity:1;pointer-events:auto}
+#top{z-index:42;left:0;right:calc(30px + var(--sar));top:0;display:flex;align-items:flex-start;justify-content:space-between;gap:20px;transition:opacity .6s var(--ease)}
+/* white angled plate with the SKAI Space wordmark, as in every SKAI HUD frame */
+.brand{display:flex;align-items:flex-end;gap:5px;height:calc(60px + var(--sat));padding:var(--sat) 44px 15px calc(30px + var(--sal));background:var(--white);clip-path:polygon(0 0,100% 0,calc(100% - 20px) 100%,0 100%)}
+.brand .wm{display:block;width:90px;height:23.5px}
+.brand .sp{display:block;width:47.5px;height:14.3px}
+/* sound: royal pill with a heavy white border (the SKAI timer style) */
+#sound{margin-top:calc(20px + var(--sat));display:flex;align-items:center;gap:10px;height:40px;padding:0 14px;background:var(--royal);border:2px solid var(--white);border-radius:6px;box-shadow:inset 0 0 0 3px #2E48A3;color:var(--white);font-size:12px}
+#sound:hover{background:#2E48A3}
+#sound .bars{display:flex;gap:2px;align-items:flex-end;height:12px}
+#sound .bars i{width:2px;background:var(--white);height:4px;animation:eq 1s ease-in-out infinite alternate}
+#sound .bars i:nth-child(2){animation-delay:-.3s}#sound .bars i:nth-child(3){animation-delay:-.6s}#sound .bars i:nth-child(4){animation-delay:-.15s}
+#sound.off .bars i{animation:none;height:2px}
+@keyframes eq{to{height:12px}}
+@media (max-width:760px),(max-height:500px){ #soundTxt{display:none} #top{right:calc(16px + var(--sar))} #sound{margin-top:calc(12px + var(--sat));height:36px;padding:0 10px} .brand{height:calc(46px + var(--sat));padding:var(--sat) 32px 10px calc(18px + var(--sal))} .brand .wm{width:72px;height:18.8px} .brand .sp{width:38px;height:11.4px} }
+
+/* letterbox: on for the whole tour, off at the finale */
+#lb .bar{position:fixed;left:0;right:0;height:0;background:#000;z-index:30}
+#lb .top{top:0}#lb .bot{bottom:0}
+
+.mask{display:inline-block;overflow:hidden;vertical-align:top;padding-bottom:.1em}
+.mask>span{display:inline-block;will-change:transform}
+
+/* skill badge: one style per skill, after the SKAI per-skill HUD frames (colours set from SKILLS in config.js) */
+.chip{display:inline-flex;align-items:center;gap:10px;height:42px;padding:0 18px 0 5px;margin-bottom:clamp(16px,2vw,26px);position:relative;
+  font-family:var(--head);font-weight:700;font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:var(--white);
+  background:linear-gradient(90deg,var(--sk-from),var(--sk-to));border:2px solid var(--white);border-radius:6px;box-shadow:inset 0 0 0 3px rgba(255,255,255,.14)}
+.chip .ico{display:grid;place-items:center;width:30px;height:30px;border-radius:4px;background:rgba(255,255,255,.16)}
+.chip .ico svg{width:22px;height:22px;display:block}
+/* robotics: rounded capsule with the three slanted stripes */
+.chip[data-skill="robotics"]{border-radius:14px;padding-left:5px}
+.chip[data-skill="robotics"]:after{content:"";width:22px;height:10px;margin-left:4px;background:repeating-linear-gradient(115deg,var(--white) 0 3px,transparent 3px 7px)}
+/* coding: chip badge with pins, green plate with an inset ring */
+.chip[data-skill="coding"]{border-radius:3px;box-shadow:inset 0 0 0 3px var(--green)}
+/* ai & data and mechanics: bolted plates (rivets in the corners) */
+.chip[data-skill="ai"],.chip[data-skill="mechanics"]{padding-right:24px;
+  background:radial-gradient(circle at 6px 6px,rgba(255,255,255,.75) 1.6px,transparent 2.2px),radial-gradient(circle at calc(100% - 6px) 6px,rgba(255,255,255,.75) 1.6px,transparent 2.2px),
+    radial-gradient(circle at 6px calc(100% - 6px),rgba(255,255,255,.75) 1.6px,transparent 2.2px),radial-gradient(circle at calc(100% - 6px) calc(100% - 6px),rgba(255,255,255,.75) 1.6px,transparent 2.2px),
+    linear-gradient(-65deg,var(--sk-from),var(--sk-to))}
+.chip[data-skill="mechanics"] .ico,.chip[data-skill="ai"] .ico{background:none}
+
+/* tagline: two lines per planet, left of the planet (bottom in portrait) */
+#tag{z-index:15;left:calc(clamp(24px,6vw,96px) + var(--sal));top:0;bottom:0;width:min(44vw,800px);display:flex;align-items:center}
+#tag .in{position:relative;width:100%}
+#tag .in:before{content:"";position:absolute;z-index:-1;left:-30%;top:-70%;width:160%;height:240%;background:radial-gradient(closest-side,rgba(5,11,34,.62),rgba(5,11,34,0));pointer-events:none}
+#tag p{font-family:var(--head);font-size:clamp(34px,5.4vw,96px);line-height:1.02;letter-spacing:-.01em;white-space:nowrap}
+#tag .a{font-weight:700;color:var(--white)}
+#tag .b{font-weight:500;color:var(--sk-ink)}
+@media (max-aspect-ratio:9/10){ #tag{left:calc(20px + var(--sal));right:calc(20px + var(--sar));width:auto;align-items:flex-end;padding-bottom:calc(var(--lbh) + 28px + var(--sab))} .chip{height:38px;font-size:13px} }
+/* phone landscape: shorter badge, text sized by height too */
+@media (max-height:500px) and (min-aspect-ratio:9/10){ .chip{height:34px;font-size:12px;margin-bottom:10px} .chip .ico{width:24px;height:24px} .chip .ico svg{width:18px;height:18px} #tag p{font-size:clamp(26px,9vh,48px)} }
+
+/* finale */
+#launch{z-index:15;left:calc(clamp(24px,6vw,96px) + var(--sal));top:0;bottom:0;max-width:760px;display:flex;align-items:flex-end;padding-bottom:calc(clamp(40px,9vh,110px) + var(--sab))}
+#launch .in{position:relative}
+#launch .in:before{content:"";position:absolute;z-index:-1;left:-40%;top:-60%;width:180%;height:220%;background:radial-gradient(closest-side,rgba(5,11,34,.72),rgba(5,11,34,0));pointer-events:none}
+#launch .k{color:var(--sky)}
+#launch h2{font-family:var(--head);font-weight:700;font-size:clamp(44px,6.6vw,116px);line-height:.95;letter-spacing:-.01em;margin:12px 0 30px}
+#launch .actions{display:flex;gap:16px;flex-wrap:wrap}
+@media (max-aspect-ratio:9/10){ #launch{left:calc(16px + var(--sal));right:calc(16px + var(--sar));align-items:flex-end;padding-bottom:calc(56px + var(--sab))} }
+@media (max-height:500px) and (min-aspect-ratio:9/10){ #launch h2{font-size:clamp(32px,11vh,56px);margin:6px 0 16px} #launch .k{display:none} }
+@media (max-width:380px){ #launch .actions{gap:10px} .plate{padding:0 16px;font-size:14px} }
+
+/* SKAI bolted plate button (Start Mission component: default / hover / pressed / disabled) */
+.plate{--fill:var(--orange);--fill-hi:#FFB84D;--fill-lo:#D9850C;--rivet:var(--dark-orange);--glow:rgba(252,160,27,.55);
+  display:inline-flex;align-items:center;justify-content:center;gap:10px;height:56px;padding:0 30px;border:3px solid var(--white);border-radius:6px;
+  font-family:var(--head);font-weight:700;font-size:17px;letter-spacing:.04em;text-transform:uppercase;color:var(--white);text-decoration:none;
+  background:radial-gradient(circle at 9px 9px,var(--rivet) 2.4px,transparent 3px),radial-gradient(circle at calc(100% - 9px) 9px,var(--rivet) 2.4px,transparent 3px),
+    radial-gradient(circle at 9px calc(100% - 9px),var(--rivet) 2.4px,transparent 3px),radial-gradient(circle at calc(100% - 9px) calc(100% - 9px),var(--rivet) 2.4px,transparent 3px),var(--fill);
+  transition:background-color .2s,box-shadow .25s var(--ease),transform .1s}
+.plate:hover{--fill:var(--fill-hi);box-shadow:0 0 22px var(--glow)}
+.plate:active{--fill:var(--fill-lo);box-shadow:none;transform:translateY(1px)}
+.plate.blue{--fill:#2E48A3;--fill-hi:#3A57BD;--fill-lo:var(--royal);--rivet:#091C56;--glow:rgba(46,72,163,.6)}
+.plate svg{width:16px;height:16px}
+@media (max-width:760px){ .plate{height:50px;padding:0 22px;font-size:15px} }
+.skiplink:focus{position:fixed;left:16px;top:16px;width:auto;height:auto;clip:auto;z-index:100;background:var(--accent);color:var(--near-black);padding:10px 14px;font-family:var(--head);font-weight:700;font-size:12px}
+
+/* ---------- loading screen: SKAI plate + progress while the 3D engine starts ---------- */
+#boot{position:fixed;inset:0;z-index:300;display:grid;place-items:center;background:var(--bg);transition:opacity .6s var(--ease)}
+#boot.done{opacity:0;pointer-events:none}
+#boot .bp{display:flex;flex-direction:column;align-items:center;gap:22px}
+#boot .plate-w{display:flex;align-items:flex-end;gap:6px;padding:16px 34px 17px;background:var(--white);clip-path:polygon(14px 0,100% 0,calc(100% - 14px) 100%,0 100%)}
+#boot .plate-w .wm{width:112px;height:29.3px}#boot .plate-w .sp{width:59px;height:17.8px}
+#boot .track{width:220px;height:3px;background:rgba(184,216,244,.18);overflow:hidden}
+#boot .track i{display:block;height:100%;background:var(--orange);box-shadow:0 0 10px var(--orange);transform-origin:left;transform:scaleX(0);transition:transform .45s var(--ease);animation:bootpre 1.4s var(--ease) forwards}
+@keyframes bootpre{to{transform:scaleX(.22)}}
+#boot .lbl{color:var(--muted)}
+/* if the script never runs, the loading screen must not trap the page */
+@keyframes bootfail{to{opacity:0;visibility:hidden}}
+#boot{animation:bootfail .4s 12s forwards}
+@media (prefers-reduced-motion:reduce){ .door-face .sweep,#sound .bars i{animation:none} }
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<noscript><p style="position:fixed;inset:0;display:grid;place-items:center;padding:24px;text-align:center;font:600 16px Inter,system-ui,sans-serif;color:#F7FBFF;background:#050b22;z-index:200">SKAI Space needs JavaScript to run. Visit <a style="color:#FCA01B" href="https://www.skaispace.ai/">skaispace.ai</a>.</p></noscript>
+<a class="sr skiplink" href="#srValues">Skip to a text version of the tour</a>
+<div id="boot" aria-hidden="true"><div class="bp"><div class="plate-w"><img class="wm" src="brand/skai-wordmark.svg" alt=""><img class="sp" src="brand/skai-space.svg" alt=""></div><div class="track"><i id="bootBar"></i></div><div class="mono lbl" id="bootLbl">Preparing launch bay</div></div></div>
+<canvas id="gl" aria-hidden="true"></canvas>
+
+<div class="frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+
+<!-- BLAST DOOR -->
+<div id="door" aria-hidden="true">
+  <div class="door-half l"><div class="door-face"><div class="art"></div><div class="sweep"></div>
+    <div class="stencil mono">Launch bay 03 · Orbital access<br>Seal integrity nominal<b>SKAI&nbsp;Space</b></div></div></div>
+  <div class="door-half r"><div class="door-face"><div class="art"></div><div class="sweep"></div></div></div>
+  <div class="door-light"></div>
+  <div class="bulk top"><span class="mono">Orbital access · Bay 03</span><span class="lamps"><i></i><i></i><i class="c"></i><i class="r"></i></span><span class="mono">SKAI-1 · Cabin pressure <b>101.3 kPa</b></span></div>
+  <div class="bulk bot"><span class="hz"></span><span class="mono">Keep clear of door path</span><span class="mono">Ext. temp <b>−270 °C</b></span><span class="hz"></span></div>
+</div>
+<div id="flash"></div>
+
+<!-- LOCK -->
+<div id="lock">
+  <div class="lock-title"><div class="mono k">Launch bay 03 · Sealed</div><h2>Cadet access</h2></div>
+  <svg class="rings" viewBox="0 0 400 400" aria-hidden="true">
+    <g class="ring r1"><circle cx="200" cy="200" r="196" fill="none" stroke="rgba(184,216,244,.2)" stroke-width="1"/><g id="ticks"></g></g>
+    <g class="ring r2"><circle cx="200" cy="200" r="170" fill="none" stroke="rgba(247,251,255,.55)" stroke-width="2" stroke-dasharray="120 40 6 40 220 30" /><circle cx="200" cy="200" r="176" fill="none" stroke="rgba(245,165,36,.75)" stroke-width="2" stroke-dasharray="18 300 10 400"/></g>
+    <g class="ring r3"><circle cx="200" cy="200" r="150" fill="none" stroke="rgba(23,189,224,.4)" stroke-width="1"/><circle cx="200" cy="200" r="158" fill="none" stroke="rgba(23,189,224,.25)" stroke-width="6" stroke-dasharray="1 5"/>
+      <path d="M200 44v14M200 342v14M44 200h14M342 200h14" stroke="var(--accent)" stroke-width="2"/></g>
+    <circle id="prog" cx="200" cy="200" r="150" fill="none" stroke="var(--accent)" stroke-width="3" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" transform="rotate(-90 200 200)"/>
+    <g class="ring r4"><circle cx="200" cy="200" r="128" fill="none" stroke="rgba(184,216,244,.12)" stroke-width="10" stroke-dasharray="2 6"/></g>
+  </svg>
+  <button id="core" aria-label="Tap to scan in and open the bay door">
+    <svg class="glyph" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M24 25.5C18.6 19.6 10.8 15.6 2 15.2c7.4 2.6 13.6 7.1 18 13.2L17.6 41 24 34.6 30.4 41 28 28.4c4.4-6.1 10.6-10.6 18-13.2-8.8.4-16.6 4.4-22 10.3Z"/></svg>
+    <svg class="fp" viewBox="0 0 120 120" aria-hidden="true"><defs><clipPath id="fpc"><circle cx="60" cy="60" r="50"/></clipPath></defs><g id="fpg" clip-path="url(#fpc)"></g></svg>
+    <span class="scanline"></span>
+    <span class="core-pulse"></span>
+  </button>
+  <div class="lock-caption mono"><div class="t1"><span class="dot"></span><span id="cap1">Tap to scan in</span></div><div class="t2" id="cap2">Identity check required</div></div>
+  <ul class="readout mono" aria-live="polite">
+    <li>› Biometric link <b>established</b></li>
+    <li>› Ridge map <b id="ridge">00/42</b></li>
+    <li>› Cadet profile <b>Explorer</b></li>
+    <li class="ok">› Clearance <b>Launch bay 03</b></li>
+  </ul>
+</div>
+<button id="skip" class="mono">Skip intro →</button>
+
+<!-- HUD -->
+<header id="top" class="hud">
+  <div class="brand" role="img" aria-label="SKAI Space"><img class="wm" src="brand/skai-wordmark.svg" alt=""><img class="sp" src="brand/skai-space.svg" alt=""></div>
+  <button id="sound" class="mono" aria-pressed="true"><span class="bars"><i></i><i></i><i></i><i></i></span><span id="soundTxt">Sound on</span></button>
+</header>
+
+<section id="tag" class="hud" aria-live="polite">
+  <div class="in">
+    <div class="chip" id="chip" data-skill=""><span class="ico" id="chipIco" aria-hidden="true"></span><span id="chipLbl"></span></div>
+    <p class="a"><span class="mask"><span id="tA"></span></span></p>
+    <p class="b"><span class="mask"><span id="tB"></span></span></p>
+  </div>
+</section>
+
+<section id="launch" class="hud" aria-label="Finale">
+  <div class="in">
+    <div class="mono k">By ConveGenius</div>
+    <h2>SKAI Space</h2>
+    <div class="actions">
+      <a class="plate" id="ctaLink" href="https://www.skaispace.ai/" target="_blank" rel="noopener">Visit skaispace.ai <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6 4h6v6" fill="none" stroke="currentColor" stroke-width="2"/></svg></a>
+      <button class="plate blue" id="replay">Replay</button>
+    </div>
+  </div>
+</section>
+
+<div id="lb" aria-hidden="true"><div class="bar top"></div><div class="bar bot"></div></div>
+
+<section class="sr" id="srValues" aria-label="SKAI Space (text version)" tabindex="-1"></section>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+# SKAI Space · Boarding Sequence — DESIGN.md
+
+Handoff rules for every future version (Three.js, Blender, 2D). The source of truth for brand is the **Skai-Design** Figma file (page "Final": colour palette, Chakra Petch × Inter pairing, per-skill HUD frames, Start Mission button states). If a change breaks a rule here, change the rule on purpose or don't make the change.
+
+## Concept
+A launch-bay boarding sequence that plays like a short film. One tap scans the visitor in and opens the door; after that there is no input. SKAI-1 flies past four planets (about 25 s after the door opens). Each planet carries one tagline and one skill we teach, shown as a 3D object beside the planet, and the tour lands on the swift-logo constellation with a call to action. An inviting page, not a simulation: the sky carries the words, and the UI stays out of the way.
+
+## Colour tokens (SKAI palette, `:root` in index.html)
+| Token | Hex | Role |
+|---|---|---|
+| `--bg` | `#050b22` | Page base (a darker step of Deep Navy). Never pure black except the letterbox. |
+| `--ghost` / `--white` | `#F7FBFF` / `#FFFFFF` | Text, plate borders. |
+| `--steel` / `--sky` | `#86A9CC` / `#B8D8F4` | Secondary text, hairlines. |
+| `--royal` | `#0A2D94` | System pills (Sound), blue plates. |
+| `--deep-navy` / `--navy` | `#091C56` / `#17355F` | Door and panel surfaces, rivets on blue plates. |
+| `--orange` | `#FCA01B` | The one action colour: primary plate button, progress, hazard. |
+| `--amber` / `--yellow` / `--dark-orange` | `#F5A524` / `#FEE714` / `#B96D00` | Lamps, focus ring, rivets on orange plates. |
+| `--mint` / `--cyan` / `--teal` | `#45CDB5` / `#17BDE0` / `#096B5B` | Biometrics, data, coding text. |
+| `--green` | `#18AC6A` | Granted states. |
+
+### Skill colours (`SKILLS` in src/config.js, from the per-skill HUD frames)
+| Skill | Plate | Text on sky (`ink`) | 3D cue |
+|---|---|---|---|
+| Robotics | `#961477 → #FC22B3` (magenta) | `#FC4FC4` | Robot arm with gripper, pick-and-place loop |
+| AI & Data | `#2E48A3 → #0A2D94` (blue, orange accents) | `#17BDE0` | Neural network, orange signals running layer to layer |
+| Coding | `#108D55 → #18AC6A` (green, inset ring) | `#45CDB5` | Code window (`mission.py`) that types itself, header dots orange/yellow/mint |
+| Mechanics | `#154777 → #2784DD` steel plate, `#FCA01B` gear | `#FCA01B` | Three meshing gears on a hazard-striped beam |
+
+Each planet's `atmo` (glow) matches its skill.
+
+## Type
+- Headings, labels, buttons: **Chakra Petch** 500–700. Labels and buttons are uppercase with +0.04–0.1em tracking.
+- Body: **Inter** 400–600.
+- Taglines: line 1 Chakra Petch 700 white; line 2 Chakra Petch 500 in the skill's `ink`. Never wrap; `fitLines()` shrinks them to fit.
+- Canvas text (rocket hull, door stencils, code window) also uses Chakra Petch.
+
+## Components
+- **Logo plate**: the SKAI Space wordmark (`public/brand/skai-wordmark.svg` + `skai-space.svg`, exported from Figma) on a white plate with an angled right edge, flush to the top-left corner, as in every SKAI HUD frame. Never recolour or redraw the wordmark.
+- **Plate button** (`.plate`): the Start Mission component. Orange fill, 3px white border, 6px radius, four rivets, Chakra Petch 700 uppercase. Hover = lighter fill + orange glow; pressed = darker, 1px down. `.plate.blue` is the secondary (blue `#2E48A3`).
+- **Sound pill**: royal fill, 2px white border, inset ring (the SKAI timer style).
+- **Curved text ring**: each planet wears a tilted band of Chakra Petch type, `SKILL ◆ MISSION 0n / 04 ◆ SKAI SPACE ◆`, skill name in the skill `ink`, hairline rules top and bottom. Near side full brightness, far side ~15%. Inside the rocket's orbit (1.36r; 1.3r on the ringed planet, inside its rings). Built in `buildRings()`.
+- **Skill badge** (`.chip`): one style per skill, after its HUD frame: Robotics = magenta capsule with three slanted stripes; Coding = green plate with an inset ring and a chip-with-pins icon; AI & Data and Mechanics = bolted plates (rivets) with a hexagon or gear icon.
+
+## Layout
+- Tagline and badge sit left (desktop) or bottom (portrait); the planet sits right/top. Never centre text over a planet.
+- The skill cue sits at the planet's lower right (`CUE_SPOT` in main.js), closer to the camera than the planet, clear of the letterbox and the rocket's orbit.
+- Letterbox bars (11% landscape, 13% portrait of the *visible* height, `--lbh`, set from `innerHeight` so mobile toolbars don't hide them) for the whole tour; they open at the finale. The logo plate and Sound pill sit on the top bar.
+- Safe areas: `viewport-fit=cover`; the logo plate, Sound pill, tagline, finale and skip link add `env(safe-area-inset-*)`.
+- Breakpoints: portrait = aspect < 0.9 (text bottom, planet top); ≤760px wide or ≤500px tall = compact HUD; ≤500px tall landscape = phone landscape (lock sized by height with the readout beside it, smaller badge and finale); ≤700px tall portrait = small phone (smaller lock).
+
+## Motion grammar
+| Moment | Duration | Ease |
+|---|---|---|
+| UI enter | 0.6–1.1s, 0.06–0.12s stagger | `expo.out` |
+| UI exit | 0.35s | `power2.in` |
+| Door open | 2.1s halves, 2.3s push-in | `expo.inOut` / `power2.in` |
+| Flight leg | 2.6–3.6s by distance (`CONFIG.tour`) | quad in-out on the path |
+| Tagline + badge in | at 70% of the approach; badge slides 0.8s, lines mask-reveal 1.1s | `expo.out` |
+| Text ring reveal | an arc head (skill colour) sweeps the letters in from just left of the visible face, 2.4s; then the ring turns slowly; fades 0.5s when the rocket leaves | `power2.inOut` |
+| Skill cue pop | grows from 50% to full size over 1.3s as its tagline appears | `expo.out` |
+| Planet hold | 2.0s after arrival (each tagline is on screen about 3s) | — |
+
+No bounce or elastic anywhere. Reduced motion = instant jumps and fades, same content.
+
+## Focus rules
+- One focal point per shot: the planet, its tagline, its skill cue and its text ring. During the tour only the current planet's cue and ring are visible; all four cues show at the start, and all cues and rings at the finale.
+- Minimal UI: logo plate and Sound during the tour; the finale adds only the CTA and Replay plates.
+
+## Camera shots (per leg)
+Tilt follow (launch), Chase, Low angle, Side track, Reverse, Orbit, Flyby. Each leg uses one (`PLAN`), blended in from the last frame and out into the planet frame. The lens is never allowed inside a planet or closer than 11 units to the rocket.
+
+## Content rules
+- Taglines and skills live in `CONFIG.values[]` (`line`, `skill`); skill names and colours in `SKILLS`.
+- Only show numbers with a source. The India lights on the last planet are approximate state-capital positions, not a list of active states.
+
+## Performance
+- Quality levels 2/1/0 (`setQuality`): pixel ratio 1.6/1.25/1; bloom full / half resolution / off; grain and lens flare off at 0; cloud and aurora shaders off at 0. Desktops start at 2, phones and tablets at 1, low-end devices (≤4 cores or ≤3 GB) one level lower; any device drops a level if the first frames average under ~38 fps.
+- Resize/rotation: the renderer resizes at once; stop frames, constellation and cue spots rebuild once, 180 ms after it settles. Sound suspends while the tab is hidden; rendering already pauses.
+- Ring and cue shaders are compiled at boot so their first reveal doesn't stutter. Ring textures are 4096 px wide on desktop, 2048 on phones.
+- Sky is baked once into a cube map. Everything is procedural; the only files are the two brand SVGs. The code window redraws its canvas only while its planet is on screen, at most ~12 times a second.
+
+## Never use
+Gradient text, glass cards, emoji, bouncing UI, stock photos, invented metrics, a recoloured or redrawn SKAI wordmark, fonts other than Chakra Petch and Inter.

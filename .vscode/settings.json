@@ -1,0 +1,10 @@
+{
+  "editor.formatOnSave": false,
+  "files.associations": { "*.glsl": "glsl" },
+  "search.exclude": {
+    "dist": true,
+    "dist-single": true,
+    "node_modules": true
+  },
+  "liveServer.settings.port": 5502
+}

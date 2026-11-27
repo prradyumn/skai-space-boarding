@@ -1,0 +1,26 @@
+{
+  "name": "skai-space-boarding",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SKAI Space boarding sequence: one-tap scan, blast door, and a self-playing rocket tour of four skill planets.",
+  "scripts": {
+    "dev": "vite --open",
+    "build": "vite build",
+    "preview": "vite preview --open",
+    "build:single": "node scripts/build-single.mjs",
+    "test:smoke": "node tests/smoke.cjs"
+  },
+  "dependencies": {
+    "gsap": "3.13.0",
+    "three": "0.169.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "playwright": "^1.65.1",
+    "vite": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18.18"
+  }
+}
