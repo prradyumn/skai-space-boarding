@@ -539,11 +539,20 @@ function nebulaTexture(seed) {
   const t = new CanvasTexture(c); t.colorSpace = SRGBColorSpace; return t;
 }
 
-function initThree() {
+// builds the 3D world a step at a time (yielding a frame between steps) so the lock stays responsive while it builds
+async function initThree() {
   const canvas = $('#gl');
   try {
     renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   } catch (e) { document.body.classList.add('no-webgl'); return false; }
+  // if the browser resets WebGL (GPU memory pressure, a driver hiccup, a phone backgrounding the tab),
+  // ask for the context back and re-bake the sky and planets, whose render targets are wiped
+  canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); state.ctxLost = true; });
+  canvas.addEventListener('webglcontextrestored', async () => {
+    await nextFrame();
+    bakeSky(); await bakePlanets(); renderer.compile(scene, camera);
+    state.ctxLost = false;
+  });
   renderer.setSize(innerWidth, innerHeight);
   renderer.toneMapping = ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
   renderer.outputColorSpace = SRGBColorSpace;
@@ -553,7 +562,7 @@ function initThree() {
   scene.add(camera);
   clock = { last: performance.now(), t: 0 };
 
-  buildStars(); buildNebula(); buildDust(); buildPlanets(); buildSkillCues(); buildRings(); buildEarth(); buildWarp(); buildBird(); buildRocket(); buildExhaust();
+  for (const step of [buildStars, buildNebula, buildDust, buildPlanets, () => { buildSkillCues(); buildRings(); }, buildEarth, () => { buildWarp(); buildBird(); }, buildRocket, buildExhaust]) { step(); await nextFrame(); }
   const amb = new AmbientLight(0x6b86c9, .55); scene.add(amb);
   const dl = new DirectionalLight(0xffffff, 2.2); dl.position.copy(LIGHT).normalize(); scene.add(dl);
   const fill = new DirectionalLight(0x9db6ff, 1.1); fill.position.set(.6, -.2, .8); scene.add(fill);
@@ -563,7 +572,7 @@ function initThree() {
 }
 
 /* ---------- post-processing: bloom, chromatic fringe, vignette, grain ---------- */
-let composer, bloom, finish, fxaa = null, lensflare;
+let composer, bloom, finish, fxaa = null, lensflare, bakeSky = () => {};
 // level: which effects are on (2 all, 1 lighter, 0 minimal) · pr: render resolution, adjusted every second to hold the frame rate
 const Q = { level: 2, pr: 1, maxPr: 2, minPr: 1, acc: 0, frames: 0, up: 0, cool: 2, touch: false };
 const FinishShader = {
@@ -581,16 +590,18 @@ function buildPost() {
   const touch = Q.touch = matchMedia('(hover: none)').matches || innerWidth < 760;
   const weak = (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 3;
   // anti-aliasing: 4x multisampling on desktop (the composer's own targets), a cheap FXAA pass on phones
-  const msaa = !touch && renderer.capabilities.isWebGL2;
+  // 4x MSAA only on low-density desktop screens: on Retina-class screens the resolution itself smooths edges,
+  // and multisampled half-float buffers at 2x would cost ~380 MB of GPU memory (enough to make browsers reset WebGL)
+  const msaa = !touch && renderer.capabilities.isWebGL2 && devicePixelRatio < 1.5;
   composer = new EffectComposer(renderer, new WebGLRenderTarget(innerWidth, innerHeight, { type: HalfFloatType, samples: msaa ? 4 : 0 }));
   composer.addPass(new RenderPass(scene, camera));
   bloom = new UnrealBloomPass(new Vector2(innerWidth, innerHeight), .6, .4, .82);   // crisper: less radius, higher threshold
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
-  if (!msaa) { fxaa = new ShaderPass(FXAAShader); composer.addPass(fxaa); }
+  if (touch) { fxaa = new ShaderPass(FXAAShader); composer.addPass(fxaa); }
   finish = new ShaderPass(FinishShader); composer.addPass(finish);
   // render resolution: start sharp, then adapt (watchFrameRate)
-  Q.maxPr = Math.min(devicePixelRatio, 2); Q.minPr = Math.min(devicePixelRatio, 1);
+  Q.maxPr = Math.min(devicePixelRatio, touch ? 2 : 1.75); Q.minPr = Math.min(devicePixelRatio, 1);
   Q.pr = Math.min(Q.maxPr, touch ? (weak ? 1.25 : 1.5) : weak ? 1.5 : 1.75);
   renderer.setPixelRatio(Q.pr);
   setQuality(touch ? (weak ? 0 : 1) : weak ? 1 : 2);
@@ -617,17 +628,18 @@ function applySize() {
 // adaptive resolution: every second, step down (or up, after 3 smooth seconds) to hold ~50-60 fps;
 // effects only switch off once resolution is already at 1x
 function watchFrameRate(raw) {
-  if (!state.inSpace || raw > .25) return;   // only while the scene runs; ignore tab switches
+  if (!state.rendering || raw > .25) return;   // from the door opening on; ignore tab switches
   Q.acc += raw; Q.frames++;
   if (Q.acc < 1) return;
   const ft = Q.acc / Q.frames; Q.acc = 0; Q.frames = 0;
   if (Q.cool > 0) { Q.cool--; return; }
   if (ft > 1 / 48) {
-    if (Q.pr > Q.minPr + .01) setPR(Math.max(Q.minPr, +(Q.pr * .85).toFixed(2)));
+    if (Q.pr > Q.minPr + .01) setPR(Math.max(Q.minPr, +(Q.pr * (ft > 1 / 30 ? .7 : .85)).toFixed(2)));   // far too slow: a bigger step
     else if (Q.level > 0) setQuality(Q.level - 1);
-    Q.up = 0; Q.cool = 1;
+    Q.up = 0; Q.cool = 2;
+    Q.downs = (Q.downs || 0) + 1;
   } else if (ft < 1 / 56) {
-    if (++Q.up >= 3 && Q.pr < Q.maxPr - .01) { setPR(Math.min(Q.maxPr, +(Q.pr + .15).toFixed(2))); Q.up = 0; Q.cool = 1; }
+    if (++Q.up >= (Q.downs > 1 ? 8 : 4) && Q.pr < Q.maxPr - .01) { setPR(Math.min(Q.maxPr, +(Q.pr + .15).toFixed(2))); Q.up = 0; Q.cool = 2; }
   } else Q.up = 0;
 }
 
@@ -690,11 +702,15 @@ function buildNebula() {
     side: BackSide, depthWrite: false
   });
   const sky = new Mesh(new SphereGeometry(3000, 64, 32), skyMat); skyScene.add(sky);
-  cubeCam.update(renderer, skyScene);
-  sky.geometry.dispose(); skyMat.dispose();
-  scene.background = rt.texture;
-  // metals (rocket, gears, robot arm) reflect the real sky: one PMREM pass at load
-  const pm = new PMREMGenerator(renderer); scene.environment = pm.fromCubemap(rt.texture).texture; pm.dispose();
+  // re-runnable: render-target contents are wiped if the browser resets WebGL
+  bakeSky = () => {
+    cubeCam.update(renderer, skyScene);
+    scene.background = rt.texture;
+    // metals (rocket, gears, robot arm) reflect the real sky: one PMREM pass
+    const pm = new PMREMGenerator(renderer); if (scene.environment) scene.environment.dispose();
+    scene.environment = pm.fromCubemap(rt.texture).texture; pm.dispose();
+  };
+  bakeSky();
   scene.environmentIntensity = 2.4;
   // a distant spiral galaxy
   const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d'), r = mulberry(17);
@@ -845,12 +861,12 @@ async function bakePlanets(onStep) {
     const p = planets[i], rt = target(W);
     await bake(rt, new ShaderMaterial({ uniforms: p.surf, vertexShader: vs,
       fragmentShader: NOISE + PLANET_SURFACE + UV_DIR + `varying vec2 vUv;void main(){vec4 s=surface(uvDir(vUv));gl_FragColor=vec4(pow(max(s.rgb,0.),vec3(1./2.2)),s.a);}` }));
-    p.mat.uniforms.albedo.value = rt.texture;
+    p.albedoRT?.dispose(); p.albedoRT = rt; p.mat.uniforms.albedo.value = rt.texture;
     if (p.clouds) {
       const ct = target(CW);
       await bake(ct, new ShaderMaterial({ uniforms: { seed: p.clouds.material.uniforms.seed }, vertexShader: vs,
         fragmentShader: NOISE + UV_DIR + `uniform float seed;varying vec2 vUv;void main(){vec3 p=uvDir(vUv);float n=fbm(p*3.2+vec3(seed,0.,0.));n+=.5*fbm(p*9.+seed);gl_FragColor=vec4(vec3(smoothstep(.18,.75,n)*.85),1.);}` }));
-      p.clouds.material.uniforms.density.value = ct.texture;
+      p.cloudRT?.dispose(); p.cloudRT = ct; p.clouds.material.uniforms.density.value = ct.texture;
     }
     if (onStep) onStep(i);
   }
@@ -1793,7 +1809,7 @@ function updateCamera(dt, t) {
 
 function frame(now) {
   requestAnimationFrame(frame);
-  if (!state.rendering || document.hidden) { clock.last = now; return; }
+  if (!state.rendering || document.hidden || state.ctxLost) { clock.last = now; return; }
   const raw = (now - clock.last) / 1000, dt = Math.min(.05, raw); clock.last = now; clock.t += dt;
   const t = clock.t;
   stars.material.uniforms.time.value = t;
@@ -1826,7 +1842,8 @@ function frame(now) {
 /* =====================================================================
    DOOR → WARP → SPACE
    ===================================================================== */
-function openDoor() {
+async function openDoor() {
+  if (!sceneOk) { $('#cap1').textContent = 'Preparing launch'; await sceneReady; }   // rarely needed: the world builds during the scan and briefing
   if (entranceTl) { entranceTl.progress(1).kill(); entranceTl = null; }
   state.rendering = true; state.t0 = performance.now();
   if (Sound.play('sfx-door', { vol: .95 })) Sound.play('sfx-warp', { when: 1.0, vol: .9 }); else { Sound.whoosh(2.6); Sound.riser(3.2); }
@@ -2054,7 +2071,7 @@ function initInput() {
   addEventListener('resize', () => {
     if ($('#tag').classList.contains('show')) fitLines();
     if (lbOn) letterbox(true, true);
-    if (!renderer) return;
+    if (!sceneOk) return;
     applySize(); camera.aspect = innerWidth / innerHeight;
     state.fovBase = isPortrait() ? 50 : 38; camera.updateProjectionMatrix();
     clearTimeout(rebuild); rebuild = setTimeout(buildPath, 180);   // stop frames, constellation, cue spots: once, after rotating
@@ -2085,26 +2102,27 @@ function bootStep(p, label) {
   bar.style.animation = 'none'; bar.style.transform = `scaleX(${p})`;
   if (label) $('#bootLbl').textContent = label;
 }
+// the 3D world: built, baked and pre-warmed in the background while the visitor scans in and watches the briefing
+let sceneReady = Promise.resolve(false), sceneOk = false;
+async function buildScene() {
+  const ok = await initThree();
+  if (!ok) { state.rendering = false; bird = { visible: false, userData: null }; return false; }
+  await bakePlanets();
+  state.fovBase = isPortrait() ? 50 : 38;
+  camera.fov = state.fovBase; camera.updateProjectionMatrix();
+  state.intro = 0; current = 0; updateCamera(0, 0); current = -1; camera.updateMatrixWorld();
+  await nextFrame(); await prewarm();
+  sceneOk = true; requestAnimationFrame(frame);
+  return true;
+}
 async function boot() {
-  bootStep(.3, 'Loading star charts'); await nextFrame();
+  bootStep(.35, 'Loading star charts'); await nextFrame();
   $('#srValues').innerHTML = '<h2>SKAI Space</h2><p>2040. The jobs of tomorrow don’t have names yet. How do you prepare for a world no one can map?</p>' + CONFIG.values.map(v => `<p>${SKILLS[v.skill] ? SKILLS[v.skill].name + ': ' : ''}${v.line.join(' ')}</p>`).join('') + '<p><a href="' + CONFIG.ctaUrl + '">Visit skaispace.ai</a></p>';
-  const ok = initThree();
-  bootStep(.45, 'Charting planets'); await nextFrame();
-  if (ok) {
-    await bakePlanets(i => bootStep(.45 + (i + 1) / planets.length * .3, 'Charting planets'));
-    state.fovBase = isPortrait() ? 50 : 38;
-    camera.fov = state.fovBase; camera.updateProjectionMatrix();
-    state.intro = 0; current = 0; updateCamera(0, 0); current = -1; camera.updateMatrixWorld();
-    bootStep(.8, 'Calibrating optics'); await nextFrame();
-    await prewarm();
-    requestAnimationFrame(frame);
-  } else {
-    state.rendering = false;
-    bird = { visible: false, userData: null };
-  }
+  // the lock is ready almost at once; the 3D world is not needed until the door opens
   initLock(); initInput();
   entranceTl?.pause(0);   // the lock's entrance waits for the loading screen
-  bootStep(.92, 'Sealing the bay');
+  sceneReady = buildScene();
+  bootStep(.8, 'Sealing the bay');
   await Promise.race([document.fonts ? document.fonts.ready : null, new Promise(r => setTimeout(r, 2500))]);
   bootStep(1); Sound.preload(); await new Promise(r => setTimeout(r, 280));
   const ld = $('#boot'); ld.classList.add('done'); setTimeout(() => ld.remove(), 700);
