@@ -1982,24 +1982,19 @@ function hideTagline() {
 function showFinale() {
   const l = $('#launch'); gsap.killTweensOf(l); l.classList.add('show'); gsap.set(l, { opacity: 1 });
   Sound.play('sfx-finale', { vol: .85, when: .3 }); Sound.vo('vo-finale', 1.4);
-  if (!REDUCED) gsap.fromTo('#launch .in > *', { y: 22, opacity: 0 }, { y: 0, opacity: 1, duration: 1.1, stagger: .1, ease: 'expo.out', delay: .4 });
+  document.body.classList.add('finale');
+  if (REDUCED) return;
+  gsap.fromTo('#launch .k', { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 1, ease: 'expo.out', delay: .4 });
+  // the logo plate wipes in from the left, then the button follows
+  gsap.fromTo('.logo-plate', { scaleX: 0, transformOrigin: '0% 50%' }, { scaleX: 1, duration: 1.1, ease: 'expo.inOut', delay: .55 });
+  gsap.fromTo('.logo-plate img', { x: -30, opacity: 0 }, { x: 0, opacity: 1, duration: 1, stagger: .1, ease: 'expo.out', delay: 1.05 });
+  gsap.fromTo('#launch .actions', { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 1, ease: 'expo.out', delay: 1.4 });
 }
 function hideFinale() {
   const l = $('#launch'); if (!l.classList.contains('show')) return;
   gsap.killTweensOf(l);
   gsap.to(l, { opacity: 0, duration: .35, ease: 'power2.in', onComplete: () => l.classList.remove('show') });
 }
-function replay() {
-  tourCall?.kill(); hideFinale(); playConstellation(false); leg = null;
-  rings.forEach((R, k) => hideRing(k + 1));
-  current = 0; state.p = 0; setAccent(0);
-  if (renderer) {
-    rocket.visible = true; R.mode = 'hover'; R.pos.copy(hoverPos); R.fwd.copy(hoverFwd);
-    bird.visible = true; bird.userData.u = .3; bird.userData.hist.length = 0;
-  }
-  startTour();
-}
-
 function go(i) {
   i = MathUtils.clamp(i, 0, N_STOPS - 1);
   if (!state.inSpace) return;
@@ -2066,7 +2061,6 @@ function syncSound() {
 function initInput() {
   // gentle mouse parallax only; the tour itself needs no input
   addEventListener('pointermove', e => { state.tmx = (e.clientX / innerWidth - .5) * 2; state.tmy = (e.clientY / innerHeight - .5) * 2; });
-  $('#replay').addEventListener('click', replay);
   $('#ctaLink').href = CONFIG.ctaUrl;
   if (KIOSK) {
     let idle = 0; const bump = () => { idle = 0; };
