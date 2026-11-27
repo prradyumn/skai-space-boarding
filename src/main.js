@@ -38,7 +38,10 @@ const Sound = {
   init() {
     if (this.ctx) return;
     try {
+      // iPhone: play as media, so the ring/silent switch doesn't mute the page (Safari 17+; older iOS: see unlock)
+      try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.ctx.onstatechange = () => { if (this.ctx.state === 'interrupted') this.ctx.resume().catch(() => {}); syncSound(); };
       this.master = this.ctx.createGain();
       this.master.gain.value = this.on ? .55 : 0;
       this.master.connect(this.ctx.destination);
@@ -63,9 +66,29 @@ const Sound = {
   preload() { this.FILES.forEach(k => this.load(k, this.fmt)); },
   decode(k) {
     const r = this.raw[k]; if (!r || this.lib[k]) return; delete this.raw[k];
-    this.ctx.decodeAudioData(r.b).then(buf => { this.lib[k] = buf; })
-      .catch(() => { if (r.fmt === 'ogg') this.load(k, 'mp3'); });   // reports Opus support but can't decode it: fall back
+    const ok = buf => { this.lib[k] = buf; }, bad = () => { if (r.fmt === 'ogg') this.load(k, 'mp3'); };   // reports Opus support but can't decode it: fall back
+    try { const pr = this.ctx.decodeAudioData(r.b, ok, bad); if (pr && pr.catch) pr.catch(() => {}); } catch (e) { bad(); }   // callback form also works on old iOS
   },
+  /* Phones only allow sound to start inside a finished tap (pointerup/touchend/click), not on pointerdown,
+     so every such gesture resumes the context and plays one silent sample (that completes the unlock on iOS). */
+  unlock() {
+    this.init(); const c = this.ctx; if (!c) return;
+    if (c.state !== 'running') {
+      c.resume?.().catch(() => {});
+      try { const s = c.createBufferSource(); s.buffer = c.createBuffer(1, 1, 22050); s.connect(c.destination); s.start(0); } catch (e) {}
+    }
+    // iOS before 17 has no audioSession: a looping silent <audio> element moves the page into the media category instead
+    const iOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (iOS && !navigator.audioSession && !this.tag) {
+      const n = 4000, b = new Uint8Array(44 + n), v = new DataView(b.buffer), w = (o, t) => [...t].forEach((ch, i) => b[o + i] = ch.charCodeAt(0));
+      w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true); b.fill(128, 44);
+      this.tag = new Audio(URL.createObjectURL(new Blob([b], { type: 'audio/wav' })));
+      this.tag.loop = true; this.tag.setAttribute('playsinline', '');
+    }
+    if (this.tag && this.tag.paused && !document.hidden) this.tag.play().catch(() => {});
+  },
+  get blocked() { return !!(this.on && this.ctx && this.ctx.state !== 'running'); },
   has(k) { return !!(this.ctx && this.lib[k]); },
   dur(k) { return this.has(k) && this.on ? this.lib[k].duration : 0; },
   play(k, { bus = 'sfx', vol = 1, when = 0, loop = false } = {}) {
@@ -344,7 +367,7 @@ function initLock() {
   const core = $('#core');
   const down = e => {
     e.preventDefault();
-    Sound.init();
+    Sound.unlock();
     if (lockState.phase === 'idle') toBiometric();
   };
   // one tap: the fingerprint draws, scans by itself, and the door opens
@@ -2549,9 +2572,12 @@ function playConstellation(on) {
 }
 
 function syncSound() {
-  const s = $('#sound'); s.classList.toggle('off', !Sound.on); s.setAttribute('aria-pressed', Sound.on);
-  $('#soundTxt').textContent = Sound.on ? 'Sound on' : 'Sound off';
+  const s = $('#sound'); if (!s) return;
+  s.classList.toggle('off', !Sound.on || Sound.blocked); s.setAttribute('aria-pressed', Sound.on && !Sound.blocked);
+  $('#soundTxt').textContent = Sound.blocked ? 'Tap for sound' : Sound.on ? 'Sound on' : 'Sound off';
 }
+// the gestures phones accept for starting audio; capture phase so nothing in the page can swallow them
+['pointerup', 'touchend', 'click', 'keydown'].forEach(ev => addEventListener(ev, () => Sound.unlock(), { capture: true, passive: true }));
 function initInput() {
   // gentle mouse parallax only; the tour itself needs no input
   addEventListener('pointermove', e => { state.tmx = (e.clientX / innerWidth - .5) * 2; state.tmy = (e.clientY / innerHeight - .5) * 2; });
@@ -2562,7 +2588,7 @@ function initInput() {
     setInterval(() => { if (++idle > 75) location.reload(); }, 1000);
     addEventListener('pointerdown', () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {}); }, { once: true });
   }
-  $('#sound').addEventListener('click', () => { Sound.init(); Sound.set(!Sound.on); syncSound(); });
+  $('#sound').addEventListener('click', () => { if (Sound.blocked) Sound.unlock(); else { Sound.init(); Sound.set(!Sound.on); } syncSound(); });
   let rebuild = null;
   addEventListener('resize', () => {
     if ($('#tag').classList.contains('show')) fitLines();
@@ -2573,7 +2599,11 @@ function initInput() {
     clearTimeout(rebuild); rebuild = setTimeout(buildPath, 180);   // stop frames, constellation, cue spots: once, after rotating
   });
   // pause the sound engine with the tab (rendering already pauses)
-  document.addEventListener('visibilitychange', () => { if (!Sound.ctx) return; if (document.hidden) Sound.ctx.suspend(); else Sound.ctx.resume(); });
+  document.addEventListener('visibilitychange', () => {
+    if (!Sound.ctx) return;
+    if (document.hidden) { Sound.ctx.suspend(); Sound.tag?.pause(); }
+    else { Sound.ctx.resume().catch(() => {}); Sound.tag?.play().catch(() => {}); }   // if iOS refuses, the pill offers "Tap for sound"
+  });
   document.fonts?.ready.then(() => { if ($('#tag').classList.contains('show')) fitLines(); });
 }
 
