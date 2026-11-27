@@ -592,15 +592,15 @@ function buildPost() {
   const touch = Q.touch = matchMedia('(hover: none)').matches || innerWidth < 760;
   const weak = (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 3;
   // anti-aliasing: 4x multisampling on desktop (the composer's own targets), a cheap FXAA pass on phones
-  // 4x MSAA only on low-density desktop screens: on Retina-class screens the resolution itself smooths edges,
-  // and multisampled half-float buffers at 2x would cost ~380 MB of GPU memory (enough to make browsers reset WebGL)
-  const msaa = !touch && renderer.capabilities.isWebGL2 && devicePixelRatio < 1.5;
-  composer = new EffectComposer(renderer, new WebGLRenderTarget(innerWidth, innerHeight, { type: HalfFloatType, samples: msaa ? 4 : 0 }));
+  // anti-aliasing: FXAA on phones and standard-density screens; Retina-class screens are already supersampled.
+  // No MSAA: the lens flare copies from the render target, which is illegal on a multisampled buffer
+  // (it produced black / partial frames), and multisampled buffers at 2x cost hundreds of MB of GPU memory.
+  composer = new EffectComposer(renderer, new WebGLRenderTarget(innerWidth, innerHeight, { type: HalfFloatType }));
   composer.addPass(new RenderPass(scene, camera));
   bloom = new UnrealBloomPass(new Vector2(innerWidth, innerHeight), .6, .4, .82);   // crisper: less radius, higher threshold
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
-  if (touch) { fxaa = new ShaderPass(FXAAShader); composer.addPass(fxaa); }
+  if (touch || devicePixelRatio < 1.5) { fxaa = new ShaderPass(FXAAShader); composer.addPass(fxaa); }
   finish = new ShaderPass(FinishShader); composer.addPass(finish);
   // render resolution: start sharp, then adapt (watchFrameRate)
   Q.maxPr = Math.min(devicePixelRatio, touch ? 2 : 1.75); Q.minPr = Math.min(devicePixelRatio, 1);
