@@ -60,8 +60,8 @@ Open `src/config.js`:
 All audio was generated once with ElevenLabs and is shipped as static files; **no API key is used or stored by the page**.
 
 - Narrator: *Rudra – Cinematic Luxury Brand* (`N9rZ3GaL6nwOrNUEMppm`), Indian English. Ship's computer: *SKAI Bot* (`18sERuLov47y4nrkWIuE`).
-- Lines: `vo-granted`, `vo-brief-dest` and `vo-brief-route` (SKAI Bot), `vo-brief-1`, `vo-brief-2` (the briefing), `vo-welcome`, `vo-1`…`vo-4` (the four taglines), `vo-finale`. "SKAI" is written "Sky" in the speech text for pronunciation.
-- Sound effects: `amb-space` (22 s seamless loop), scan, granted, briefing scramble and route, door, warp, flyby, one per skill, finale sting.
+- Lines: `vo-granted`, `vo-brief-dest` and `vo-brief-skills` (SKAI Bot), `vo-brief-1`, `vo-brief-2` (the briefing), `vo-welcome`, `vo-1`…`vo-6` (the six taglines), `vo-closing`, `vo-finale`. "SKAI" is written "Sky" in the speech text for pronunciation.
+- Sound effects: `amb-space` (22 s seamless loop), scan, granted, briefing scramble and route, shatter, impact (flash beats), door, warp, flyby, one per domain, finale sting. Each ships as .ogg (Opus) with an .mp3 fallback.
 - Mix (`Sound` in main.js): music, sfx and voice buses; music ducks under the voice; each planet holds until its line ends. If a file is missing, the built-in synth sounds play instead.
 - To regenerate a line, change the text, generate it again with the same voice and file name, and replace the mp3.
 
@@ -81,4 +81,4 @@ Before a public launch: replace the placeholder content if any remains, and chec
 
 ## Status
 
-Done: one-tap fingerprint scan, detailed blast door, hyperspace, a self-playing rocket tour past four skill planets (tagline, SKAI skill badge, 3D skill cue and curved text ring each), constellation finale with the skaispace.ai link and Replay, SKAI design system, responsive layouts (small phones to 1080p, phone landscape, notches), adaptive quality tiers, reduced motion, kiosk mode, a screen-reader text version, and Vercel-ready production settings.
+Done: one-tap fingerprint scan, the 2040 briefing (ending on the 10 skills, which shatter into 3D cubes), detailed blast door, hyperspace, a self-playing rocket tour past six domain planets (tagline, badge, 3D cue and curved text ring each) with whip pans, main-character focus and flash beats, a route finale with the SKAI logo and the skaispace.ai link, SKAI design system, responsive layouts (small phones to 1080p, phone landscape, notches), adaptive quality tiers, reduced motion, kiosk mode, a screen-reader text version, and Vercel-ready production settings.

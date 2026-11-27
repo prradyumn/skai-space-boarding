@@ -56,15 +56,19 @@ A launch-bay boarding sequence that plays like a short film. One tap scans the v
 | Text ring reveal | an arc head (skill colour) sweeps the letters in from just left of the visible face, 2.4s; then the ring turns slowly; fades 0.5s when the rocket leaves | `power2.inOut` |
 | Skill cue pop | grows from 50% to full size over 1.3s as its tagline appears | `expo.out` |
 | Planet hold | 2.0s after arrival (each tagline is on screen about 3s) | — |
+| Pixel shatter (briefing → door) | the briefing panel breaks into ~1,500 lit cubes that swirl out and fly past the lens, 1.8s, centre first | smoothstep per cube |
+| Whip pan | a directional blur along the camera's swing, only while it turns fast (capped so the rocket stays readable) | follows the camera |
+| Flash beat | a screen-blend cyan flash, 0.18s, with a low impact hit: door crack, the shatter, each tagline, the finale logo | `power2.out` |
 
 No bounce or elastic anywhere. Reduced motion = instant jumps and fades, same content.
 
 ## Focus rules
+- Main-character focus: when the rocket parks at a planet, the other planets desaturate and dim, stars fade by a third and the vignette deepens; the hero planet's glow flares on arrival, then settles. It all lifts when the next flight starts.
 - One focal point per shot: the planet, its tagline, its skill cue and its text ring. During the tour only the current planet's cue and ring are visible; all four cues show at the start, and all cues and rings at the finale.
-- Minimal UI: logo plate and Sound during the tour; the finale adds only the CTA and Replay plates.
+- Minimal UI: logo plate and Sound during the tour; the finale shows only the line, the SKAI logo and the CTA.
 
 ## Camera shots (per leg)
-Tilt follow (launch), Chase, Low angle, Side track, Reverse, Orbit, Flyby. Each leg uses one (`PLAN`), blended in from the last frame and out into the planet frame. The lens is never allowed inside a planet or closer than 11 units to the rocket.
+Tilt follow (launch), Chase, Hero (low, close), Side track (both sides), Orbit, Flyby, Front. The camera banks into each swoop, pushes in slowly while parked and cranes up for the finale. Each leg uses one (`PLAN`), blended in from the last frame and out into the planet frame. The lens is never allowed inside a planet or closer than 11 units to the rocket.
 
 ## Content rules
 - Taglines and skills live in `CONFIG.values[]` (`line`, `skill`); skill names and colours in `SKILLS`.

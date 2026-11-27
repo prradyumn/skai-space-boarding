@@ -6,7 +6,7 @@ import {
   MeshStandardMaterial, AmbientLight, DirectionalLight, MathUtils, Line, LineSegments as LS2, LineLoop,
   LatheGeometry, CylinderGeometry, ConeGeometry, ExtrudeGeometry, TorusGeometry, PointLight,
   WebGLCubeRenderTarget, CubeCamera, InstancedMesh, DodecahedronGeometry, BoxGeometry, Object3D, MeshBasicMaterial, PlaneGeometry, PMREMGenerator,
-  TextureLoader, NoColorSpace, MeshPhysicalMaterial, TubeGeometry, WebGLRenderTarget, HalfFloatType, OrthographicCamera,
+  TextureLoader, NoColorSpace, MeshPhysicalMaterial, TubeGeometry, InstancedBufferAttribute, WebGLRenderTarget, HalfFloatType, OrthographicCamera,
   LinearMipmapLinearFilter, LinearFilter, RepeatWrapping
 } from 'three';
 import { Lensflare, LensflareElement } from 'three/examples/jsm/objects/Lensflare.js';
@@ -53,7 +53,7 @@ const Sound = {
   FILES: ['amb-space', 'sfx-scan', 'sfx-granted', 'sfx-door', 'sfx-warp', 'sfx-flyby', 'sfx-finale',
     'sfx-mechanics', 'sfx-electronics', 'sfx-robotics', 'sfx-ai', 'sfx-design', 'sfx-entrepreneurship',
     'vo-granted', 'vo-brief-dest', 'vo-brief-1', 'vo-brief-2', 'vo-brief-skills', 'sfx-scramble', 'sfx-route', 'vo-welcome',
-    'vo-1', 'vo-2', 'vo-3', 'vo-4', 'vo-5', 'vo-6', 'vo-closing', 'vo-finale'],
+    'vo-1', 'vo-2', 'vo-3', 'vo-4', 'vo-5', 'vo-6', 'vo-closing', 'vo-finale', 'sfx-shatter', 'sfx-impact'],
   raw: {}, lib: {},
   // Ogg Opus where the browser can decode it, MP3 otherwise (older Safari); the offline single-file build embeds MP3 only
   fmt: !window.SKAI_ASSETS && typeof Audio !== 'undefined' && new Audio().canPlayType('audio/ogg; codecs="opus"') ? 'ogg' : 'mp3',
@@ -452,15 +452,120 @@ function runBriefing(done) {
   });
   const tEnd = Math.max(gStart + SKILL_GROUPS.length * gStep + 1.4, t5 + tr + .7);
   tl.to('.bf-sk', { boxShadow: '0 0 0 1px rgba(255,255,255,.35), 0 0 18px rgba(23,189,224,.35)', duration: .35, yoyo: true, repeat: 1, stagger: .03 }, tEnd - 1.1)
-    .to(B, { opacity: 0, duration: .4, ease: 'power2.in' }, tEnd);
+    .add(() => {}, tEnd);
+}
+// flash cut: a 2-4 frame flash of light (and an impact) on a story beat
+function beat(strength = .3, impact = true) {
+  if (REDUCED) return;
+  gsap.fromTo('#beat', { opacity: strength }, { opacity: 0, duration: .18, ease: 'power2.out', overwrite: true });
+  if (impact) Sound.play('sfx-impact', { vol: .5 });
 }
 function finishBriefing() {
   if (!briefTl) return;
   const done = briefDone; briefTl.kill(); briefTl = null; briefDone = null;
   Sound.stopVO();
-  const B = $('#brief'); gsap.to(B, { opacity: 0, duration: .25, onComplete: () => { B.hidden = true; } });
+  const B = $('#brief');
+  // the panel breaks into glowing cubes that stream past the lens as the door opens (a plain fade if that can't run)
+  const shattered = !REDUCED && shatterPanel(B);
+  if (shattered) { beat(.5, false); Sound.play('sfx-shatter', { vol: .9 }); gsap.set(B, { opacity: 0 }); B.hidden = true; }
+  else gsap.to(B, { opacity: 0, duration: .25, onComplete: () => { B.hidden = true; } });
   if (done) done();
 }
+/* ---------- pixel shatter: the briefing panel breaks into glowing 3D cubes that stream past the lens ----------
+   The panel is redrawn into a canvas (its frame, labels, chips and text, read from the live layout), then cut into
+   a grid of cubes on a temporary overlay. All motion runs in the vertex shader, so it costs one draw call;
+   the overlay and its GL context are freed as soon as the cubes are gone. */
+function panelSnapshot(el, R) {
+  const k = Math.min(devicePixelRatio || 1, 2), cv = document.createElement('canvas');
+  cv.width = Math.ceil(R.width * k); cv.height = Math.ceil(R.height * k);
+  const x = cv.getContext('2d'); x.scale(k, k);
+  x.fillStyle = 'rgba(5,11,34,.96)'; x.fillRect(0, 0, R.width, R.height);
+  x.strokeStyle = 'rgba(23,189,224,.35)'; x.lineWidth = 1; x.strokeRect(.5, .5, R.width - 1, R.height - 1);
+  x.strokeStyle = '#17BDE0'; x.lineWidth = 2;
+  [[0, 0, 1, 1], [R.width, 0, -1, 1], [0, R.height, 1, -1], [R.width, R.height, -1, -1]].forEach(([a, b, sx, sy]) => { x.beginPath(); x.moveTo(a + sx * 18, b); x.lineTo(a, b); x.lineTo(a, b + sy * 18); x.stroke(); });
+  const visible = e => { const s = getComputedStyle(e); if (s.visibility === 'hidden' || +s.opacity < .05) return false; for (let p = e.parentElement; p && p !== el; p = p.parentElement) { const ps = getComputedStyle(p); if (ps.visibility === 'hidden' || +ps.opacity < .05) return false; } return true; };
+  const text = (e, str) => {
+    const s = getComputedStyle(e), r = e.getBoundingClientRect(), pl = parseFloat(s.paddingLeft), pt = parseFloat(s.paddingTop), w = r.width - pl - parseFloat(s.paddingRight);
+    const fs = parseFloat(s.fontSize), lh = parseFloat(s.lineHeight) || fs * 1.25;
+    x.font = `${s.fontWeight} ${s.fontSize} ${s.fontFamily}`; x.fillStyle = s.color; x.textBaseline = 'top';
+    if ('letterSpacing' in x) x.letterSpacing = s.letterSpacing === 'normal' ? '0px' : s.letterSpacing;
+    if (s.textTransform === 'uppercase') str = str.toUpperCase();
+    const words = str.split(' '), lines = []; let ln = '';
+    words.forEach(wd => { const t = ln ? ln + ' ' + wd : wd; if (x.measureText(t).width > w + 1 && ln) { lines.push(ln); ln = wd; } else ln = t; }); if (ln) lines.push(ln);
+    lines.forEach((l, i) => x.fillText(l, r.left - R.left + pl, r.top - R.top + pt + i * lh + (lh - fs) / 2));
+  };
+  el.querySelectorAll('.bf-head span, .bf-k, .bf-year span, .bf-line, .bf-q .mask > span, .bf-jobs li, .bf-status, .bf-sk-title, .bf-g-name, .bf-sk, .bf-g-dot, .bf-track').forEach(e => {
+    if (!visible(e)) return;
+    const r = e.getBoundingClientRect(), s = getComputedStyle(e), X = r.left - R.left, Y = r.top - R.top;
+    if (e.classList.contains('bf-track')) { const g = x.createLinearGradient(X, 0, X + r.width, 0); ['#17BDE0', '#FC4FC4', '#FCA01B', '#45CDB5', '#A9B1FF'].forEach((c, i) => g.addColorStop(i / 4, c)); x.fillStyle = g; x.fillRect(X, Y, Math.max(2, r.width), Math.max(2, r.height)); return; }
+    if (e.classList.contains('bf-g-dot')) { x.fillStyle = s.borderTopColor; x.beginPath(); x.arc(X + r.width / 2, Y + r.height / 2, r.width / 2, 0, 7); x.fill(); return; }
+    if (e.classList.contains('bf-sk')) { x.fillStyle = 'rgba(184,216,244,.07)'; x.fillRect(X, Y, r.width, r.height); x.fillStyle = s.borderLeftColor; x.fillRect(X, Y, 2, r.height); }
+    text(e, e.dataset.text || e.textContent.trim());
+  });
+  const t = new CanvasTexture(cv); t.colorSpace = SRGBColorSpace; return t;
+}
+function shatterPanel(el) {
+  const R = el.getBoundingClientRect(); if (R.width < 20) return false;
+  let r2, cv;
+  try {
+    cv = document.createElement('canvas'); cv.id = 'shatter'; document.body.appendChild(cv);
+    r2 = new WebGLRenderer({ canvas: cv, alpha: true, antialias: false, powerPreference: 'high-performance' });
+  } catch (e) { cv?.remove(); return false; }
+  r2.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5)); r2.setSize(innerWidth, innerHeight); r2.outputColorSpace = SRGBColorSpace;
+  const sc = new Scene(), fov = 35, cam = new PerspectiveCamera(fov, innerWidth / innerHeight, 1, 6000);
+  cam.position.z = innerHeight / 2 / Math.tan(fov * Math.PI / 360);   // 1 world unit = 1 CSS pixel on the z = 0 plane
+  const tex = panelSnapshot(el, R), cell = innerWidth < 600 ? 12 : 15;
+  const cols = Math.ceil(R.width / cell), rows = Math.ceil(R.height / cell), n = cols * rows;
+  const geo = new BoxGeometry(cell * 1.01, cell * 1.01, cell * .6);   // edge to edge at first, so the panel reads as whole
+  const aUV = new Float32Array(n * 2), aSeed = new Float32Array(n * 3), m = new Object3D();
+  const cx = R.left + R.width / 2, cy = R.top + R.height / 2, maxD = Math.hypot(R.width, R.height) / 2;
+  const mesh = new InstancedMesh(geo, new ShaderMaterial({
+    uniforms: { map: { value: tex }, cellUV: { value: new Vector2(cell / R.width, cell / R.height) }, time: { value: 0 }, center: { value: new Vector2(cx - innerWidth / 2, innerHeight / 2 - cy) } },
+    vertexShader: `attribute vec2 aUV;attribute vec3 aSeed;uniform float time;uniform vec2 center;varying vec2 vUv;varying vec2 vCell;varying float vFront,vT;
+      mat3 rot(vec3 a,float g){a=normalize(a);float s=sin(g),c=cos(g),o=1.-c;return mat3(o*a.x*a.x+c,o*a.x*a.y+a.z*s,o*a.z*a.x-a.y*s,o*a.x*a.y-a.z*s,o*a.y*a.y+c,o*a.y*a.z+a.x*s,o*a.z*a.x+a.y*s,o*a.y*a.z-a.x*s,o*a.z*a.z+c);}
+      void main(){
+        vUv=uv;vCell=aUV;vFront=step(.5,normal.z);
+        vec3 base=vec3(instanceMatrix[3].xyz);
+        float t=clamp((time-aSeed.x)/1.25,0.,1.);vT=t;float e=t*t*(3.-2.*t);
+        vec2 d=base.xy-center;float L=length(d)+1.;vec2 dir=d/L;
+        float sw=e*(1.6+aSeed.y*1.4)*(aSeed.z>.5?1.:-1.);
+        vec2 p2=center+mat2(cos(sw),sin(sw),-sin(sw),cos(sw))*(d*(1.+e*(1.2+aSeed.y*2.2)));
+        vec3 pos=vec3(p2,base.z+e*e*(1600.+aSeed.y*1800.));
+        vec3 v=rot(vec3(aSeed.y-.5,aSeed.z-.5,.4),e*(4.+aSeed.y*8.))*(position*(1.-.6*e));
+        gl_Position=projectionMatrix*viewMatrix*vec4(pos+v,1.);
+      }`,
+    fragmentShader: `uniform sampler2D map;uniform vec2 cellUV;varying vec2 vUv;varying vec2 vCell;varying float vFront,vT;
+      void main(){
+        vec2 q=vCell+vUv*cellUV;if(vFront>.5&&(q.x>1.||q.y<0.))discard;   // cubes that overhang the panel edge
+        vec4 c=texture2D(map,q);
+        vec3 side=mix(vec3(.02,.04,.13),vec3(.05,.3,.45),smoothstep(0.,.3,vT));
+        vec3 col=mix(side,c.rgb,vFront);
+        float edge=1.-smoothstep(0.,.12,min(min(vUv.x,1.-vUv.x),min(vUv.y,1.-vUv.y)));
+        col+=vec3(.09,.74,.88)*edge*1.8*smoothstep(0.,.25,vT);   // edges only glow once the piece has broken free
+        col=mix(col,vec3(.55,.9,1.),smoothstep(.35,1.,vT)*.55);
+        gl_FragColor=vec4(col,1.-smoothstep(.7,1.,vT));
+      }`,
+    transparent: true, depthWrite: true   // depth keeps side faces behind their neighbours' fronts
+  }), n);
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const i = r * cols + c, px = R.left + (c + .5) * cell, py = R.top + (r + .5) * cell;
+    m.position.set(px - innerWidth / 2, innerHeight / 2 - py, 0); m.updateMatrix(); mesh.setMatrixAt(i, m.matrix);
+    aUV[i * 2] = c * cell / R.width; aUV[i * 2 + 1] = 1 - (r + 1) * cell / R.height;
+    const dd = Math.hypot(px - cx, py - cy) / maxD;
+    aSeed[i * 3] = dd * .35 + Math.random() * .12; aSeed[i * 3 + 1] = Math.random(); aSeed[i * 3 + 2] = Math.random();
+  }
+  geo.setAttribute('aUV', new InstancedBufferAttribute(aUV, 2)); geo.setAttribute('aSeed', new InstancedBufferAttribute(aSeed, 3));
+  sc.add(mesh);
+  const t0 = performance.now(), end = () => { tex.dispose(); geo.dispose(); mesh.material.dispose(); r2.dispose(); r2.forceContextLoss(); cv.remove(); };
+  const tick = () => {
+    const tt = (performance.now() - t0) / 1000; mesh.material.uniforms.time.value = tt;
+    r2.render(sc, cam);
+    if (tt < 1.8) requestAnimationFrame(tick); else end();
+  };
+  tick();
+  return true;
+}
+
 // job titles flicker through glyphs and settle on UNKNOWN, one after another
 function scrambleJobs() {
   const G = '▒░▓<>/#%01?XΣΛ', lis = $$('#bfJobs li');
@@ -655,6 +760,16 @@ const FinishShader = {
       c+=(h(vUv*vec2(1920.,1080.)+fract(time)*97.)-.5)*grain;
       gl_FragColor=vec4(c,1.);}`
 };
+const WhipShader = {
+  defines: { TAPS: 12 },
+  uniforms: { tDiffuse: { value: null }, dir: { value: new Vector2() }, amt: { value: 0 }, zoom: { value: 0 } },
+  vertexShader: `varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+  fragmentShader: `uniform sampler2D tDiffuse;uniform vec2 dir;uniform float amt,zoom;varying vec2 vUv;
+    void main(){vec4 c=vec4(0.);float w=0.;
+      for(int i=0;i<TAPS;i++){float f=float(i)/float(TAPS-1)-.5;vec2 o=dir*amt*f+(vUv-.5)*zoom*f;float k=1.-abs(f)*1.2;c+=texture2D(tDiffuse,vUv+o)*k;w+=k;}
+      gl_FragColor=c/w;}`
+};
+let whip = null;
 function buildPost() {
   const touch = Q.touch = matchMedia('(hover: none)').matches || innerWidth < 760;
   const weak = (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 3;
@@ -666,6 +781,8 @@ function buildPost() {
   composer.addPass(new RenderPass(scene, camera));
   bloom = new UnrealBloomPass(new Vector2(innerWidth, innerHeight), .6, .4, .82);   // crisper: less radius, higher threshold
   composer.addPass(bloom);
+  WhipShader.defines.TAPS = touch ? 8 : 12;
+  whip = new ShaderPass(WhipShader); whip.enabled = false; composer.addPass(whip);
   composer.addPass(new OutputPass());
   if (touch || devicePixelRatio < 1.5) { fxaa = new ShaderPass(FXAAShader); composer.addPass(fxaa); }
   finish = new ShaderPass(FinishShader); composer.addPass(finish);
@@ -888,11 +1005,11 @@ function buildIndiaLights() {
 
 function buildClouds(p, i) {
   const m = new ShaderMaterial({
-    uniforms: { sunDir: { value: p.mat.uniforms.sunDir.value }, time: { value: 0 }, density: { value: null }, seed: { value: i * 7.1 + 3 } },
+    uniforms: { sunDir: { value: p.mat.uniforms.sunDir.value }, time: { value: 0 }, density: { value: null }, seed: { value: i * 7.1 + 3 }, dimF: { value: 0 } },
     vertexShader: `varying vec2 vUv;varying vec3 vWN;varying vec3 vV;void main(){vUv=uv;vec4 wp=modelMatrix*vec4(position,1.);vWN=normalize(mat3(modelMatrix)*normal);vV=normalize(cameraPosition-wp.xyz);gl_Position=projectionMatrix*viewMatrix*wp;}`,
-    fragmentShader: `uniform vec3 sunDir;uniform sampler2D density;varying vec2 vUv;varying vec3 vWN;varying vec3 vV;
+    fragmentShader: `uniform vec3 sunDir;uniform sampler2D density;uniform float dimF;varying vec2 vUv;varying vec3 vWN;varying vec3 vV;
       void main(){float a=texture2D(density,vUv).r;float l=smoothstep(-.15,.7,dot(vWN,sunDir));float edge=smoothstep(0.,.35,dot(vWN,vV));
-        gl_FragColor=vec4(vec3(.95,.97,1.)*(.04+l*1.1),a*edge*(.15+.85*l));
+        gl_FragColor=vec4(vec3(.95,.97,1.)*(.04+l*1.1)*(1.-.5*dimF),a*edge*(.15+.85*l)*(1.-.6*dimF));
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
@@ -955,16 +1072,17 @@ function buildPlanets() {
       swirl: { value: v.swirl || 0 }, kin: { value: v.rock ? 1 : 0 }
     };
     const mat = new ShaderMaterial({
-      uniforms: { albedo: { value: null }, rimC: { value: new Color(v.atmo) }, sunDir: { value: sunDir }, time: { value: 0 } },
+      uniforms: { albedo: { value: null }, rimC: { value: new Color(v.atmo) }, sunDir: { value: sunDir }, time: { value: 0 }, dimF: { value: 0 } },
       vertexShader: `varying vec2 vUv;varying vec3 vWN;varying vec3 vV;
         void main(){vUv=uv;vec4 wp=modelMatrix*vec4(position,1.);vWN=normalize(mat3(modelMatrix)*normal);vV=normalize(cameraPosition-wp.xyz);gl_Position=projectionMatrix*viewMatrix*wp;}`,
-      fragmentShader: `uniform sampler2D albedo;uniform vec3 rimC,sunDir;varying vec2 vUv;varying vec3 vWN;varying vec3 vV;
+      fragmentShader: `uniform sampler2D albedo;uniform vec3 rimC,sunDir;uniform float dimF;varying vec2 vUv;varying vec3 vWN;varying vec3 vV;
         void main(){
           vec4 a=texture2D(albedo,vUv);vec3 col=pow(a.rgb,vec3(2.2));float seam=a.a;
           float d=dot(vWN,sunDir);float light=smoothstep(-.18,.75,d);
           float rim=pow(1.-max(dot(vWN,vV),0.),2.6);
           col=col*(.05+light*1.3)+rimC*rim*(.06+light*.75)*.8;
           vec3 gold=vec3(1.,.7,.26);col=mix(col,gold*(.35+light*1.5),seam*.9);col+=gold*seam*(1.-light)*1.6;
+          float lum=dot(col,vec3(.299,.587,.114));col=mix(col,vec3(lum)*.5,dimF*.8);   // out of focus: desaturate and dim
           gl_FragColor=vec4(col,1.);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -976,10 +1094,10 @@ function buildPlanets() {
     body.userData.index = i;
     group.add(body);
     const atmoMat = new ShaderMaterial({
-      uniforms: { c: { value: new Color(v.atmo) }, k: { value: 1 }, sunDir: { value: sunDir } },
+      uniforms: { c: { value: new Color(v.atmo) }, k: { value: 1 }, sunDir: { value: sunDir }, dimF: { value: 0 } },
       vertexShader: `varying vec3 vN;varying vec3 vWN;void main(){vN=normalize(normalMatrix*normal);vWN=normalize(mat3(modelMatrix)*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
-      fragmentShader: `uniform vec3 c;uniform float k;uniform vec3 sunDir;varying vec3 vN;varying vec3 vWN;
-        void main(){float z=-vN.z;float i=smoothstep(0.,.42,z)*smoothstep(.95,.36,z);i=pow(i,2.2);float s=.18+.82*smoothstep(-.5,.7,dot(vWN,sunDir));gl_FragColor=vec4(c*i*k*s*.95,1.);
+      fragmentShader: `uniform vec3 c;uniform float k,dimF;uniform vec3 sunDir;varying vec3 vN;varying vec3 vWN;
+        void main(){float z=-vN.z;float i=smoothstep(0.,.42,z)*smoothstep(.95,.36,z);i=pow(i,2.2);float s=.18+.82*smoothstep(-.5,.7,dot(vWN,sunDir));gl_FragColor=vec4(c*i*k*s*.95*(1.-.65*dimF),1.);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
         }`,
@@ -2048,6 +2166,7 @@ function startLeg(to) {
   if (launching) { state.shake = 1; gsap.to(state, { shake: 0, duration: 2.2, ease: 'power2.out' }); }
   if (!Sound.play('sfx-flyby', { vol: launching ? 1 : .75, when: launching ? 0 : .2 })) { if (launching) Sound.whoosh(2.2, .22); else Sound.whoosh(1.2, .1); }
   hideTagline(); hideFinale(); playConstellation(false); rings.forEach((R, k) => hideRing(k + 1));
+  planets.forEach(p => gsap.to(p.atmoMat.uniforms.k, { value: 1, duration: .8, overwrite: true }));
   bird.visible = false;
 }
 const pad = n => String(n).padStart(2, '0');
@@ -2153,6 +2272,31 @@ function updateCamera(dt, t) {
   if (Math.abs(camera.fov - fov) > .01) { camera.fov = fov; camera.updateProjectionMatrix(); }
 }
 
+// whip-pan: how far last frame's view centre moved across the screen = the direction and strength of the swing
+// main-character focus: at a planet stop the hero stays crisp; other planets, the stars and the edges fall back
+const _fw = new Vector3(), _pfw = new Vector3(), _wp = new Vector3();
+function updateWhipAndFocus(dt) {
+  camera.getWorldDirection(_fw);
+  let amt = 0, dx = 0, dy = 0;
+  if (state.hadFw && !REDUCED && (leg || state.warp > .05)) {
+    _wp.copy(camera.position).addScaledVector(_pfw, 100).project(camera);
+    dx = -_wp.x * .5; dy = -_wp.y * .5; amt = Math.min(.024, Math.hypot(dx, dy) * .9);
+  }
+  _pfw.copy(_fw); state.hadFw = true;
+  state.whipAmt = (state.whipAmt || 0) + (amt - (state.whipAmt || 0)) * Math.min(1, dt * 10);
+  if (amt > 1e-5) whip.uniforms.dir.value.set(dx, dy).normalize();
+  whip.uniforms.amt.value = state.whipAmt; whip.uniforms.zoom.value = REDUCED ? 0 : state.legWarp * .4;
+  whip.enabled = state.whipAmt > .0008 || whip.uniforms.zoom.value > .0008;
+  const hero = !leg && current >= 1 && current <= CONFIG.values.length ? current : 0;
+  state.focus = (state.focus || 0) + ((hero ? 1 : 0) - (state.focus || 0)) * Math.min(1, dt * 1.8);
+  planets.forEach((p, i) => {
+    const target = hero && i + 1 !== hero ? state.focus : 0, u = p.mat.uniforms.dimF;
+    u.value += (target - u.value) * Math.min(1, dt * 3);
+    p.atmoMat.uniforms.dimF.value = u.value; if (p.clouds) p.clouds.material.uniforms.dimF.value = u.value;
+  });
+  stars.material.uniforms.fade.value = 1 - .35 * state.focus;
+  finish.uniforms.vig.value = .42 + .22 * state.focus;
+}
 function frame(now) {
   requestAnimationFrame(frame);
   if (!state.rendering || document.hidden || state.ctxLost) { clock.last = now; return; }
@@ -2180,6 +2324,7 @@ function frame(now) {
   updateRoute(t);
   updateEarth(dt, t);
   if (constel && constel.group.visible) { constel.sm.uniforms.prog.value = constel.prog; constel.sm.uniforms.time.value = t; constel.lg.setDrawRange(0, Math.floor(constel.prog * constel.n)); }
+  updateWhipAndFocus(dt);
   finish.uniforms.time.value = t;
   finish.uniforms.ca.value = (Q.touch ? 0 : .0004) + state.warp * .012 + (leg ? .0005 : 0);   // fringe mostly for the warp only
   watchFrameRate(raw);
@@ -2219,6 +2364,7 @@ async function openDoor() {
     .to('.door-half.l', { xPercent: -100, duration: 2.1, ease: 'expo.inOut' }, .8)
     .to('.door-half.r', { xPercent: 100, duration: 2.1, ease: 'expo.inOut' }, .8)
     .fromTo('#flash', { opacity: 0 }, { opacity: .85, duration: .5, ease: 'power2.in' }, 1.0)
+    .add(() => Sound.play('sfx-impact', { vol: .45 }), 1.05)
     .to('#flash', { opacity: 0, duration: 1.4, ease: 'power2.out' }, 1.5)
     .to(state, { warp: 1, duration: .9, ease: 'power2.in' }, 1.0)
     .to(state, { intro: 1, duration: 3.6, ease: 'expo.out' }, 1.3)
@@ -2265,6 +2411,8 @@ function onArrive(i) {
   tourCall?.kill();
   if (i >= 1 && i <= CONFIG.values.length) {
     showTagline(i);
+    // the hero's atmosphere flares as it takes focus, then settles a little brighter than the rest
+    if (!REDUCED) gsap.timeline().to(planets[i - 1].atmoMat.uniforms.k, { value: 2.4, duration: .35, ease: 'power2.out' }).to(planets[i - 1].atmoMat.uniforms.k, { value: 1.3, duration: 1.4, ease: 'power2.inOut' });
     const hold = Math.max(CONFIG.tour.hold, Sound.dur('vo-' + i) + .1);   // let the voice-over finish its line
     tourCall = gsap.delayedCall(hold + (REDUCED || !renderer ? 1 : 0), () => go(i + 1));
   } else if (i === N_STOPS - 1) {
@@ -2296,7 +2444,7 @@ function showTagline(i) {
   gsap.killTweensOf([el, '#tag .in', '#tag .mask>span', '#chip']);
   el.classList.add('show'); gsap.set(el, { opacity: 1 }); gsap.set('#tag .in', { y: 0 }); gsap.set('#chip', { opacity: 1, x: 0 });
   fitLines();
-  popSkillCue(i); showRing(i);
+  popSkillCue(i); showRing(i); beat(.2);
   if (sk && !Sound.play('sfx-' + v.skill, { vol: .7 })) Sound.skill(v.skill);
   Sound.vo('vo-' + i, .35);
   if (REDUCED) return;
@@ -2331,6 +2479,7 @@ function showFinale() {
   if (REDUCED) return;
   gsap.fromTo('.fin-line .mask>span', { yPercent: 110 }, { yPercent: 0, duration: 1.1, stagger: .55, ease: 'expo.out', delay: .25 });
   gsap.fromTo('.logo-plate', { scaleX: 0, transformOrigin: '0% 50%' }, { scaleX: 1, duration: 1, ease: 'expo.inOut', delay: 1.9 });
+  gsap.delayedCall(2.55, () => beat(.38, false));   // the logo lands
   gsap.fromTo('.logo-plate img', { x: -30, opacity: 0 }, { x: 0, opacity: 1, duration: .9, stagger: .1, ease: 'expo.out', delay: 2.35 });
   gsap.delayedCall(3.1, () => { const p = $('.logo-plate'); p.classList.remove('glint'); void p.offsetWidth; p.classList.add('glint'); });
   gsap.fromTo('#launch .actions', { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 1, ease: 'expo.out', delay: 2.9 });
