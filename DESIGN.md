@@ -91,6 +91,9 @@ Skip intro ends it at any point. Job titles are present-day examples only; never
 ## Rocket
 Hero model built in code (`buildRocket`): gloss clear-coat paint over a 2048px livery (SKAI, SK-1 · LAUNCHPAD, BY CONVEGENIUS, hazard band) with a bump map for panel seams and rivets; chrome nose tip and interstage rings; beveled swept fins with orange leading edges; portholes with chrome rims and a warm cabin glow; a cooled main bell with a hot rim and four steering engines; side boosters with chrome nose caps. The flame has a white-hot core, turbulence and shock diamonds. No national flag or emblem on the livery.
 
+## Finale: the route, completed
+After the fourth planet the letterbox opens and the camera pulls back to a fitted frame (`finaleFrame`) with all four planets in the upper part of the screen. The rocket runs a route through them in briefing order, drawing a dotted line in the skill colours (`buildRoute3D`) and lighting each planet's atmosphere as it passes, then streaks off the end in a flash. Then: a soft dark gradient rises from the bottom; the closing line ("The world can't be mapped. / But your students can be ready for it.", narrator) reveals; the SKAI Space logo plate wipes in with one light sweep; the Visit skaispace.ai plate button follows; the narrator says "SKAI Space, by ConveGenius". No skill objects, text rings, bird, constellation, corner logo, sound pill or Replay at the finale.
+
 ## Earth
 - Seen only at the start and during the launch flight; fades out before the first planet. Low in frame (bottom third), dawn line across it, India's lights on the night side. Never in planet shots or the finale.
 

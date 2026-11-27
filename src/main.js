@@ -335,7 +335,8 @@ function initLock() {
     .from('.door-half.r', { xPercent: 6, duration: 1.4 }, 0)
     .from('.ring', { scale: .6, opacity: 0, duration: 1.4, stagger: .08, svgOrigin: '200 200' }, .2)
     .from('#core', { scale: .7, opacity: 0, duration: 1.2 }, .35)
-    .from('.lock-title > *, .lock-caption > *', { y: 10, opacity: 0, duration: 1, stagger: .08 }, .6)
+    .from('.lock-caption > *', { y: 10, opacity: 0, duration: 1, stagger: .08 }, .6)
+    .add(startNudge, 1.4)
     .from('#skip', { opacity: 0, duration: 1 }, 1);
 
   const core = $('#core');
@@ -350,7 +351,35 @@ function initLock() {
   $('#skip').addEventListener('click', () => { Sound.init(); if (briefTl) return finishBriefing(); grant(true); });
 }
 
+// until the first tap, a finger taps the sensor every few seconds: press, ripple, release
+let nudgeTl = null;
+function startNudge() {
+  if (lockState.phase !== 'idle') return;
+  const hint = $('.tap-hint');
+  if (REDUCED) { gsap.set(hint, { opacity: 1 }); return; }
+  // the glove hovers tilted in 3D, tips into the screen to press, then lifts away
+  gsap.set('.tap-hint .glove', { transformPerspective: 520, rotationX: 24, rotationY: -20, z: 0 });
+  gsap.set('.tap-shadow', { x: 14, y: 16, scale: 1.5, opacity: .25 });
+  nudgeTl = gsap.timeline({ repeat: -1, repeatDelay: 1 })
+    .fromTo(hint, { opacity: 0, x: 30, y: 30 }, { opacity: 1, x: 0, y: 0, duration: .6, ease: 'power3.out' })
+    .fromTo('.tap-hint .glove', { rotationX: 30, rotationY: -26 }, { rotationX: 24, rotationY: -20, duration: .6, ease: 'power3.out' }, '<')
+    // press: tip forward into the panel, shadow tightens under the fingertip
+    .to('.tap-hint .glove', { rotationX: 44, rotationY: -12, z: -26, x: -4, y: -4, duration: .18, ease: 'power2.in' })
+    .to('.tap-shadow', { x: 0, y: 0, scale: .55, opacity: .7, duration: .18, ease: 'power2.in' }, '<')
+    .fromTo('.core-ripple', { scale: .6, opacity: .9 }, { scale: 1.9, opacity: 0, duration: .9, ease: 'power2.out' })
+    .fromTo('#core', { scale: 1 }, { scale: .95, duration: .12, yoyo: true, repeat: 1, ease: 'power1.inOut' }, '<')
+    // release
+    .to('.tap-hint .glove', { rotationX: 24, rotationY: -20, z: 0, x: 0, y: 0, duration: .35, ease: 'power2.out' }, '<.1')
+    .to('.tap-shadow', { x: 14, y: 16, scale: 1.5, opacity: .25, duration: .35, ease: 'power2.out' }, '<')
+    .to(hint, { opacity: 0, x: 22, y: 22, duration: .5, ease: 'power2.in' }, '+=.45');
+}
+function stopNudge() {
+  nudgeTl?.kill(); nudgeTl = null; document.body.classList.add('tapped');
+  gsap.to('.tap-hint', { opacity: 0, duration: .25 }); gsap.set('#core', { scale: 1 });
+}
+
 function toBiometric() {
+  stopNudge();
   lockState.phase = 'locking';
   Sound.blip(660, .08, 'sine', .14); Sound.blip(990, .12, 'sine', .1, .09);
   ringSpin.forEach(t => t.timeScale(6));
@@ -376,7 +405,7 @@ function runBriefing(done) {
   const show = sel => tl.set(sel, { visibility: 'visible' }).fromTo(sel, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: .5, ease: 'expo.out' }, '<');
   const hide = sel => tl.to(sel, { opacity: 0, y: -8, duration: .35, ease: 'power2.in' }).set(sel, { visibility: 'hidden' });
   const tl = briefTl = gsap.timeline({ onComplete: () => finishBriefing() });
-  tl.to('.lock-title, .lock-caption, .readout', { opacity: 0, duration: .4 }, 0)
+  tl.to('.lock-caption, .readout', { opacity: 0, duration: .4 }, 0)
     .to('#lock svg.rings', { opacity: .18, duration: .6 }, 0)
     .to(B, { opacity: 1, duration: .5 }, .15)
     .fromTo('.bf-frame i', { scale: 1.8, opacity: 0 }, { scale: 1, opacity: 1, duration: .7, ease: 'expo.out', stagger: .05 }, .2);
@@ -473,6 +502,7 @@ function startScan() {
 }
 
 function grant(skipped) {
+  stopNudge();
   if (lockState.phase === 'granted') return;
   lockState.phase = 'granted';
   lockState.tween?.kill(); gsap.getById('scanY')?.kill(); Sound.scanStop();
@@ -1691,7 +1721,7 @@ function buildRoute3D() {
   // waypoints sit just in front of and above each planet, so the line never hides behind one
   const way = CONFIG.values.map(v => new Vector3(...v.pos).addScaledVector(toCam, v.r * 1.6).add(new Vector3(0, v.r * .55, 0)));
   const a = way[0], b = way[way.length - 1], dir = b.clone().sub(a).normalize();
-  const curve = new CatmullRomCurve3([a.clone().addScaledVector(dir, -70).add(new Vector3(0, -12, 0)), ...way, b.clone().addScaledVector(dir, 80).add(new Vector3(0, 16, 0))], false, 'centripetal');
+  const curve = new CatmullRomCurve3([a.clone().addScaledVector(dir, -38).add(new Vector3(0, -6, 0)), ...way, b.clone().addScaledVector(dir, 80).add(new Vector3(0, 16, 0))], false, 'centripetal');
   const N = 480, P = curve.getSpacedPoints(N - 1);
   const uk = way.map(w => { let bi = 0, bd = Infinity; P.forEach((p, i) => { const dd = p.distanceToSquared(w); if (dd < bd) { bd = dd; bi = i; } }); return bi / (N - 1); });
   const cols = CONFIG.values.map(v => new Color(SKILLS[v.skill].ink)), col = new Float32Array(N * 3), uu = new Float32Array(N), c = new Color();
@@ -1706,12 +1736,12 @@ function buildRoute3D() {
     uniforms: { prog: { value: 0 }, time: { value: 0 }, pr: { value: renderer.getPixelRatio() } },
     vertexShader: `attribute float u;attribute vec3 color;uniform float prog,time,pr;varying vec3 vC;varying float vA;
       void main(){vec4 mv=modelViewMatrix*vec4(position,1.);float on=step(u,prog);float head=exp(-pow((prog-u)*40.,2.));
-        vA=on*(.55+.25*sin(time*3.-u*60.))+head*1.6;vC=color;gl_PointSize=(2.2+head*7.)*pr*(240./-mv.z);gl_Position=projectionMatrix*mv;}`,
-    fragmentShader: `varying vec3 vC;varying float vA;void main(){float d=length(gl_PointCoord-.5);float a=smoothstep(.5,0.,d);gl_FragColor=vec4(mix(vC,vec3(1.),.25)*a*a*vA,1.);}`,
+        vA=on*(.95+.35*sin(time*3.-u*60.))+head*2.;vC=color;gl_PointSize=(3.6+head*9.)*pr*(240./-mv.z);gl_Position=projectionMatrix*mv;}`,
+    fragmentShader: `varying vec3 vC;varying float vA;void main(){float d=length(gl_PointCoord-.5);float a=smoothstep(.5,0.,d);gl_FragColor=vec4(mix(vC,vec3(1.),.3)*a*vA*1.4,1.);}`,
     transparent: true, depthWrite: false, blending: AdditiveBlending
   });
   const pts = new Points(g, pm), lg = g.clone();
-  const line = new Line(lg, new LineBasicMaterial({ vertexColors: true, transparent: true, opacity: .55, blending: AdditiveBlending, depthWrite: false }));
+  const line = new Line(lg, new LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 1, blending: AdditiveBlending, depthWrite: false }));
   lg.setDrawRange(0, 0);
   const flash = new Sprite(new SpriteMaterial({ map: glowTexture('rgba(255,255,255,1)', 'rgba(252,160,27,.5)'), transparent: true, opacity: 0, depthWrite: false, blending: AdditiveBlending }));
   flash.position.copy(P[N - 1]); flash.scale.setScalar(.01);
@@ -1951,7 +1981,7 @@ async function openDoor() {
   }
   ringSpin.forEach(t => gsap.to(t, { timeScale: 14, duration: .6, ease: 'power2.in' }));
   tl.to('#skip', { opacity: 0, duration: .3 }, 0)
-    .to('.lock-title, .lock-caption, .readout', { opacity: 0, y: 8, duration: .4, ease: 'power2.in' }, 0)
+    .to('.lock-caption, .readout', { opacity: 0, y: 8, duration: .4, ease: 'power2.in' }, 0)
     .to('.r1', { scale: 1.7, opacity: 0, duration: .9, ease: 'power3.in', svgOrigin: '200 200' }, .1)
     .to('.r2', { scale: 1.45, opacity: 0, duration: .9, ease: 'power3.in', svgOrigin: '200 200' }, .15)
     .to('.r3, #prog', { scale: 1.25, opacity: 0, duration: .9, ease: 'power3.in', svgOrigin: '200 200' }, .2)
@@ -2076,7 +2106,6 @@ function showFinale() {
   gsap.fromTo('.logo-plate', { scaleX: 0, transformOrigin: '0% 50%' }, { scaleX: 1, duration: 1, ease: 'expo.inOut', delay: 1.9 });
   gsap.fromTo('.logo-plate img', { x: -30, opacity: 0 }, { x: 0, opacity: 1, duration: .9, stagger: .1, ease: 'expo.out', delay: 2.35 });
   gsap.delayedCall(3.1, () => { const p = $('.logo-plate'); p.classList.remove('glint'); void p.offsetWidth; p.classList.add('glint'); });
-  gsap.fromTo('.fin-brand .k', { x: -12, opacity: 0 }, { x: 0, opacity: 1, duration: .9, ease: 'expo.out', delay: 2.6 });
   gsap.fromTo('#launch .actions', { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 1, ease: 'expo.out', delay: 2.9 });
 }
 function hideFinale() {
