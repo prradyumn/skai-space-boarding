@@ -178,13 +178,13 @@ body.tapped .lock-caption .t1{animation:none;border-color:rgba(184,216,244,.35);
 .chip[data-skill="robotics"]{border-radius:14px;padding-left:5px}
 .chip[data-skill="robotics"]:after{content:"";width:22px;height:10px;margin-left:4px;background:repeating-linear-gradient(115deg,var(--white) 0 3px,transparent 3px 7px)}
 /* coding: chip badge with pins, green plate with an inset ring */
-.chip[data-skill="coding"]{border-radius:3px;box-shadow:inset 0 0 0 3px var(--green)}
+.chip[data-skill="electronics"]{border-radius:3px;box-shadow:inset 0 0 0 3px var(--green)}
 /* ai & data and mechanics: bolted plates (rivets in the corners) */
-.chip[data-skill="ai"],.chip[data-skill="mechanics"]{padding-right:24px;
+.chip[data-skill="ai"],.chip[data-skill="mechanics"],.chip[data-skill="design"],.chip[data-skill="entrepreneurship"]{padding-right:24px;
   background:radial-gradient(circle at 6px 6px,rgba(255,255,255,.75) 1.6px,transparent 2.2px),radial-gradient(circle at calc(100% - 6px) 6px,rgba(255,255,255,.75) 1.6px,transparent 2.2px),
     radial-gradient(circle at 6px calc(100% - 6px),rgba(255,255,255,.75) 1.6px,transparent 2.2px),radial-gradient(circle at calc(100% - 6px) calc(100% - 6px),rgba(255,255,255,.75) 1.6px,transparent 2.2px),
     linear-gradient(-65deg,var(--sk-from),var(--sk-to))}
-.chip[data-skill="mechanics"] .ico,.chip[data-skill="ai"] .ico{background:none}
+.chip[data-skill="mechanics"] .ico,.chip[data-skill="ai"] .ico,.chip[data-skill="design"] .ico,.chip[data-skill="entrepreneurship"] .ico{background:none}
 
 /* tagline: two lines per planet, left of the planet (bottom in portrait) */
 #tag{z-index:15;left:calc(clamp(24px,6vw,96px) + var(--sal));top:0;bottom:0;width:min(44vw,800px);display:flex;align-items:center}
@@ -268,8 +268,39 @@ body.finale #sound{opacity:0;pointer-events:none}
 .bf-q em{font-style:normal;color:var(--orange)}
 .bf-q .mask{display:block}
 .bf-route{width:100%;height:auto;overflow:visible}
-.bf-route text{font-family:var(--head);font-weight:600;font-size:13px;letter-spacing:.08em;fill:var(--muted)}
-@media (max-width:760px){ #brief{height:min(470px,72vh)} .bf-jobs{grid-template-columns:1fr;gap:6px} .bf-route{max-height:100%} .bf-route text{font-size:17px} }
+/* stage 4: the skills. The panel widens for it */
+#brief.wide{width:min(980px,94vw);height:min(420px,74vh)}
+.bf-skills{justify-content:center}
+.bf-sk-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:clamp(16px,2.4vh,26px)}
+.bf-sk-head .bf-k{margin:0}
+.bf-sk-title{font-family:var(--head);font-weight:700;font-size:clamp(18px,2vw,26px);color:var(--white)}
+.bf-sk-title b{color:var(--orange)}
+.bf-sk-body{position:relative}
+/* the route: a line through the five groups (across on wide screens, down on phones) */
+.bf-track{position:absolute;left:0;right:0;top:7px;height:2px;background:rgba(184,216,244,.14)}
+.bf-track i{position:absolute;inset:0;display:block;background:linear-gradient(90deg,#17BDE0,#FC4FC4,#FCA01B,#45CDB5,#A9B1FF);transform-origin:0 50%;transform:scaleX(0)}
+.bf-groups{list-style:none;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:clamp(10px,1.4vw,18px);position:relative}
+.bf-g{--g:#17BDE0;display:flex;flex-direction:column;align-items:flex-start;gap:10px;min-width:0}
+.bf-g-dot{display:block;width:16px;height:16px;border-radius:50%;background:var(--bg);border:2px solid var(--g);transition:background .3s,box-shadow .3s}
+.bf-g.lit .bf-g-dot{background:var(--g);box-shadow:0 0 14px var(--g)}
+.bf-g-name{color:var(--g);font-size:12px;letter-spacing:.16em;margin-top:2px}
+.bf-sks{list-style:none;display:flex;flex-direction:column;gap:7px;width:100%}
+.bf-sk{font-family:var(--body);font-weight:500;font-size:clamp(12.5px,1.2vw,16px);line-height:1.28;color:var(--ink);padding:9px 11px;border-left:2px solid var(--g);background:rgba(184,216,244,.06);border-radius:0 4px 4px 0}
+@media (max-width:760px){ #brief{height:min(470px,72vh)} .bf-jobs{grid-template-columns:1fr;gap:6px} }
+/* phones: one group per row, the route runs down the left edge */
+@media (max-width:600px){
+  #brief.wide{width:92vw;height:min(530px,80vh)}
+  .bf-skills{justify-content:flex-start}
+  .bf-sk-head{margin-bottom:14px}
+  .bf-track{left:7px;right:auto;top:8px;bottom:8px;width:2px;height:auto}
+  .bf-track i{background:linear-gradient(180deg,#17BDE0,#FC4FC4,#FCA01B,#45CDB5,#A9B1FF);transform-origin:50% 0;transform:scaleY(0)}
+  .bf-groups{grid-template-columns:1fr;gap:12px}
+  .bf-g{display:grid;grid-template-columns:16px 72px 1fr;align-items:start;column-gap:10px;row-gap:0}
+  .bf-g-name{margin-top:1px;font-size:11px}
+  .bf-sks{flex-direction:row;flex-wrap:wrap;gap:6px}
+  .bf-sk{font-size:12.5px;padding:6px 9px}
+}
+@media (max-height:500px) and (min-aspect-ratio:9/10){ #brief.wide{height:90vh;width:94vw} .bf-sk-head{margin-bottom:10px} .bf-sk-title{font-size:18px} .bf-sk{font-size:11.5px;padding:5px 8px} .bf-sks{gap:5px} .bf-g{gap:7px} }
 @media (max-height:500px) and (min-aspect-ratio:9/10){ #brief{height:86vh;top:52%} .bf-year{font-size:clamp(56px,22vh,110px)} .bf-jobs{gap:4px 20px} .bf-line{font-size:clamp(18px,6vh,30px);margin-top:10px} .bf-q{font-size:clamp(24px,8vh,44px)} .bf-route{max-height:58vh} }
 /* ---------- loading screen: SKAI plate + progress while the 3D engine starts ---------- */
 #boot{position:fixed;inset:0;z-index:300;display:grid;place-items:center;background:var(--bg);transition:opacity .6s var(--ease)}
@@ -360,7 +391,10 @@ body.finale #sound{opacity:0;pointer-events:none}
   <div class="bf-stage" id="bfS2"><div class="mono bf-k">Scanning job market</div><ul class="bf-jobs mono" id="bfJobs"></ul><div class="mono bf-status">Route: <b>unknown</b></div>
     <p class="bf-line"><span class="mask"><span id="bfA">The jobs of tomorrow don’t have names yet.</span></span></p></div>
   <div class="bf-stage" id="bfS3"><p class="bf-q"><span class="mask"><span>How do you prepare</span></span><span class="mask"><span>for a world</span></span><span class="mask"><span><em>no one can map?</em></span></span></p></div>
-  <div class="bf-stage" id="bfS4"><div class="mono bf-k">Plotting route</div><svg class="bf-route" id="bfRoute" viewBox="0 0 640 130" aria-hidden="true"></svg></div>
+  <div class="bf-stage bf-skills" id="bfS4">
+    <div class="bf-sk-head"><span class="mono bf-k">Route plotted</span><p class="bf-sk-title"><b id="bfCount">10</b> skills to chart any world</p></div>
+    <div class="bf-sk-body"><div class="bf-track" aria-hidden="true"><i></i></div><ol class="bf-groups" id="bfGroups"></ol></div>
+  </div>
 </section>
 <button id="skip" class="mono">Skip intro →</button>
 

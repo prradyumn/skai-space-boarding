@@ -18,15 +18,12 @@ A launch-bay boarding sequence that plays like a short film. One tap scans the v
 | `--mint` / `--cyan` / `--teal` | `#45CDB5` / `#17BDE0` / `#096B5B` | Biometrics, data, coding text. |
 | `--green` | `#18AC6A` | Granted states. |
 
-### Skill colours (`SKILLS` in src/config.js, from the per-skill HUD frames)
-| Skill | Plate | Text on sky (`ink`) | 3D cue |
-|---|---|---|---|
-| Robotics | `#961477 → #FC22B3` (magenta) | `#FC4FC4` | Robot arm with gripper, pick-and-place loop |
-| AI & Data | `#2E48A3 → #0A2D94` (blue, orange accents) | `#17BDE0` | Neural network, orange signals running layer to layer |
-| Coding | `#108D55 → #18AC6A` (green, inset ring) | `#45CDB5` | Code window (`mission.py`) that types itself, header dots orange/yellow/mint |
-| Mechanics | `#154777 → #2784DD` steel plate, `#FCA01B` gear | `#FCA01B` | Three meshing gears on a hazard-striped beam |
-
-Each planet's `atmo` (glow) matches its skill.
+### Domain planets and skills (src/config.js, from the SKAI Space framework: 6 domains, 10 skills in 5 groups)
+- **Domains are planets** (the "carriers"), in framework order, each with a badge, tagline, text ring and 3D object:
+  Structures & Mechanical (gears) · Electronics (circuit board with flowing current) · Robotics (robot arm) · AI & Data (neural network) · Design & Innovation (lightbulb over a blueprint) · Entrepreneurship (rising bar chart with coins).
+  Badge colours: steel/orange, green, magenta, blue/cyan, amber/yellow, violet (`SKILLS`, keyed by domain).
+- **Skills are shown in the briefing** (the "cargo"), not on planets: `SKILL_GROUPS` = Thinking (critical, creative thinking) · Social (empathy & perspective-taking, communication, collaboration) · Making (making and iteration) · Self (agency and self-direction, responsible action) · Digital (computational thinking, coding and algorithms).
+- Draft taglines awaiting sign-off: Electronics "Every circuit / starts with a spark.", Design & Innovation "Imagine it. / Then build it."
 
 ## Type
 - Headings, labels, buttons: **Chakra Petch** 500–700. Labels and buttons are uppercase with +0.04–0.1em tracking.
@@ -84,7 +81,7 @@ Between the scan and the door, the ship's computer runs a briefing on a HUD pane
 1. `DESTINATION` · **2040**, the cursor blinks twice (two beeps). SKAI Bot: "Destination: twenty forty."
 2. `SCANNING JOB MARKET`: today's job titles decode into glyphs and settle on **UNKNOWN**; `ROUTE: UNKNOWN`. Narrator: "The jobs of tomorrow don't have names yet."
 3. The panel clears to one question: "How do you prepare for a world **no one can map?**" Narrator asks it; no music yet.
-4. `PLOTTING ROUTE`: a line draws through four nodes (the four skills, in their colours) as SKAI Bot names them ("Plotting route: robotics, AI and data, coding, mechanics."), each node lighting as it is named; then the door opens and the tour plays as the answer. Wide screens draw the route left to right; narrow screens (< 600px) draw it top to bottom with labels beside the nodes.
+4. `ROUTE PLOTTED · 10 skills to chart any world`: the panel widens; a route line runs through the five skill groups (columns on wide screens, a list with the line down the left on phones), each group's dot, name and skill chips landing as SKAI Bot names it ("Route plotted. Ten skills: thinking, social, making, self, digital.") ("Plotting route: robotics, AI and data, coding, mechanics."), each node lighting as it is named; then the door opens and the tour plays as the answer. Wide screens draw the route left to right; narrow screens (< 600px) draw it top to bottom with labels beside the nodes.
 Every line on the briefing screen is spoken; on phones the door's light sweep is off (it repaints the whole screen).
 Skip intro ends it at any point. Job titles are present-day examples only; never claim which jobs will or won't exist.
 

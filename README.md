@@ -1,6 +1,6 @@
 # SKAI Space · Boarding Sequence
 
-An inviting showcase page for SKAI Space (ConveGenius). The visitor taps the lock once: a fingerprint scans itself, the ship's computer runs a short mission briefing ("Destination 2040 … How do you prepare for a world no one can map?"), and a blast door opens into space. From there it plays on its own, with no more input, for about 25 s. A rocket (SKAI-1) flies past four planets, each carrying one tagline and one skill we teach (robotics, AI & data, coding, mechanics) shown as a moving 3D object and a curved ring of text around the planet, and the experience ends on a swift-logo constellation with a link to skaispace.ai. It opens over a glimpse of Earth (night side, India's city lights, dawn on the horizon), and it is fully voiced and scored with ElevenLabs audio.
+An inviting showcase page for SKAI Space (ConveGenius). The visitor taps the lock once: a fingerprint scans itself, the ship's computer runs a short mission briefing ("Destination 2040 … How do you prepare for a world no one can map?"), and a blast door opens into space. From there it plays on its own, with no more input, for about 25 s. A rocket (SKAI-1) flies past six planets, one per SKAI domain (Structures & Mechanical, Electronics, Robotics, AI & Data, Design & Innovation, Entrepreneurship), each carrying a tagline shown as a moving 3D object and a curved ring of text around the planet, and the experience ends on a swift-logo constellation with a link to skaispace.ai. It opens over a glimpse of Earth (night side, India's city lights, dawn on the horizon), and it is fully voiced and scored with ElevenLabs audio.
 
 Built with **Three.js 0.169** and **GSAP 3.13**. It follows the SKAI design system from the Skai-Design Figma file (Chakra Petch × Inter, the SKAI palette, bolted plate buttons, per-skill badge styles). Every visual is generated in code. The page has **no runtime dependencies on other sites**: fonts are self-hosted (`public/fonts/`, OFL), and the only files are the two SKAI wordmark SVGs, the favicon and the link-preview image. JavaScript is about 199 KB gzipped, split into three cached chunks (three.js, GSAP, app); audio (540 KB) and Earth maps (510 KB) load in the background after the page appears.
 
@@ -50,7 +50,8 @@ PROMPT.md             Prompt to paste into Copilot Chat / Claude Code / Cursor i
 
 Open `src/config.js`:
 
-- `SKILLS`: each skill's display name, plate colours, text colour and which 3D cue it uses (`arm`, `neural`, `terminal`, `gears`).
+- `SKILLS`: one entry per domain: display name, plate colours, text colour and which 3D object it uses (`gears`, `circuit`, `arm`, `neural`, `bulb`, `chart`).
+- `SKILL_GROUPS`: the 10 skills in 5 groups shown on the briefing's route screen.
 - `CONFIG.values`: one planet per tagline. `line` is the two lines of text (the second is drawn in the skill's colour) and `skill` picks a key of `SKILLS`. The rest is the planet's look: colours, size, position and feature flags such as `clouds`, `aurora`, `swirl`, `moons`, `rock`, `ring`. Add or remove an entry to add or remove a planet.
 - `CONFIG.tour`: timing in seconds (hover before the first flight, time parked at each planet, flight speed and shortest/longest flight).
 

@@ -6,7 +6,7 @@ import {
   MeshStandardMaterial, AmbientLight, DirectionalLight, MathUtils, Line, LineSegments as LS2, LineLoop,
   LatheGeometry, CylinderGeometry, ConeGeometry, ExtrudeGeometry, TorusGeometry, PointLight,
   WebGLCubeRenderTarget, CubeCamera, InstancedMesh, DodecahedronGeometry, BoxGeometry, Object3D, MeshBasicMaterial, PlaneGeometry, PMREMGenerator,
-  TextureLoader, NoColorSpace, MeshPhysicalMaterial, WebGLRenderTarget, HalfFloatType, OrthographicCamera,
+  TextureLoader, NoColorSpace, MeshPhysicalMaterial, TubeGeometry, WebGLRenderTarget, HalfFloatType, OrthographicCamera,
   LinearMipmapLinearFilter, LinearFilter, RepeatWrapping
 } from 'three';
 import { Lensflare, LensflareElement } from 'three/examples/jsm/objects/Lensflare.js';
@@ -18,7 +18,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { gsap } from 'gsap';
 
-import { CONFIG, SKILLS } from './config.js';
+import { CONFIG, SKILLS, SKILL_GROUPS } from './config.js';
 
 const KIOSK = location.hash === '#kiosk';
 // ?capture: fixed full quality for recording the promo video frame by frame (no adaptive resolution)
@@ -50,8 +50,10 @@ const Sound = {
   },
   /* ElevenLabs voice-over and sound effects (public/audio). Fetched in the background after boot,
      decoded once audio is allowed (first tap). Anything missing falls back to the synth sounds. */
-  FILES: ['amb-space', 'sfx-scan', 'sfx-granted', 'sfx-door', 'sfx-warp', 'sfx-flyby', 'sfx-robotics', 'sfx-ai', 'sfx-coding', 'sfx-mechanics', 'sfx-finale',
-    'vo-granted', 'vo-brief-dest', 'vo-brief-1', 'vo-brief-2', 'vo-brief-route', 'sfx-scramble', 'sfx-route', 'vo-welcome', 'vo-1', 'vo-2', 'vo-3', 'vo-4', 'vo-closing', 'vo-finale'],
+  FILES: ['amb-space', 'sfx-scan', 'sfx-granted', 'sfx-door', 'sfx-warp', 'sfx-flyby', 'sfx-finale',
+    'sfx-mechanics', 'sfx-electronics', 'sfx-robotics', 'sfx-ai', 'sfx-design', 'sfx-entrepreneurship',
+    'vo-granted', 'vo-brief-dest', 'vo-brief-1', 'vo-brief-2', 'vo-brief-skills', 'sfx-scramble', 'sfx-route', 'vo-welcome',
+    'vo-1', 'vo-2', 'vo-3', 'vo-4', 'vo-5', 'vo-6', 'vo-closing', 'vo-finale'],
   raw: {}, lib: {},
   // Ogg Opus where the browser can decode it, MP3 otherwise (older Safari); the offline single-file build embeds MP3 only
   fmt: !window.SKAI_ASSETS && typeof Audio !== 'undefined' && new Audio().canPlayType('audio/ogg; codecs="opus"') ? 'ogg' : 'mp3',
@@ -400,7 +402,7 @@ function runBriefing(done) {
   briefDone = done;
   const B = $('#brief'); B.hidden = false;
   $('#bfJobs').innerHTML = BRIEF_JOBS.map(j => `<li>${j}</li>`).join('');
-  buildRouteArt();
+  buildSkillsArt();
   const d = (k, f) => Sound.dur(k) || f;
   const show = sel => tl.set(sel, { visibility: 'visible' }).fromTo(sel, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: .5, ease: 'expo.out' }, '<');
   const hide = sel => tl.to(sel, { opacity: 0, y: -8, duration: .35, ease: 'power2.in' }).set(sel, { visibility: 'hidden' });
@@ -424,16 +426,28 @@ function runBriefing(done) {
   tl.to('#bfS2', { opacity: 0, duration: .35 }, t3).set('#bfS2', { visibility: 'hidden' });
   tl.set('#bfS3', { visibility: 'visible', opacity: 1 }, t3 + .35)
     .fromTo('#bfS3 .mask>span', { yPercent: 110 }, { yPercent: 0, duration: 1, stagger: .14, ease: 'expo.out', onStart: () => Sound.vo('vo-brief-2') }, t3 + .4);
-  // 4 · plotting the route through the four skills, then the door
+  // 4 · the answer: the route through 10 skills in 5 groups. SKAI Bot names the groups; each lights as it is named
   const t4 = t3 + .4 + d('vo-brief-2', 3.1) + .25;
   tl.to('#bfS3', { opacity: 0, duration: .35 }, t4).set('#bfS3', { visibility: 'hidden' });
-  // SKAI Bot names the four skills; each node lights as it is named
-  const tr = d('vo-brief-route', 1.6);
-  tl.set('#bfS4', { visibility: 'visible', opacity: 1 }, t4 + .3)
-    .add(() => { Sound.play('sfx-route', { vol: .55 }); Sound.vo('vo-brief-route', .15); }, t4 + .3)
-    .fromTo('#bfPath', { attr: { 'stroke-dashoffset': 1 } }, { attr: { 'stroke-dashoffset': 0 }, duration: Math.max(1.1, tr - .2), ease: 'power1.inOut' }, t4 + .35)
-    .fromTo('#bfRoute .node', { opacity: 0 }, { opacity: 1, duration: .35, stagger: Math.max(.26, (tr - .9) / 4), ease: 'power2.out' }, t4 + .3 + Math.min(1.1, tr * .28))
-    .to(B, { opacity: 0, duration: .4, ease: 'power2.in' }, t4 + .45 + Math.max(1.6, tr + .2));
+  const tr = d('vo-brief-skills', 6.4), t5 = t4 + .35, vertical = innerWidth < 600;
+  const gStart = t5 + Math.min(2.2, tr * .34), gStep = Math.max(.42, (tr * .62) / SKILL_GROUPS.length);   // groups land as their names are spoken
+  tl.add(() => B.classList.add('wide'), t4 + .3)
+    .set('#bfS4', { visibility: 'visible', opacity: 1 }, t5)
+    .add(fitTrack, t5)
+    .add(() => { Sound.play('sfx-route', { vol: .5 }); Sound.vo('vo-brief-skills', .1); }, t5)
+    .fromTo('.bf-sk-head > *', { y: 12, opacity: 0 }, { y: 0, opacity: 1, duration: .7, stagger: .1, ease: 'expo.out' }, t5)
+    .fromTo('#bfCount', { textContent: 0 }, { textContent: 10, duration: 1.2, snap: { textContent: 1 }, ease: 'power2.out' }, t5 + .25)
+    .fromTo('.bf-track i', vertical ? { scaleY: 0 } : { scaleX: 0 }, { ...(vertical ? { scaleY: 1 } : { scaleX: 1 }), duration: gStep * (SKILL_GROUPS.length - 1) + .6, ease: 'power1.inOut' }, gStart - .2);
+  SKILL_GROUPS.forEach((grp, k) => {
+    const at = gStart + k * gStep, li = `#bfGroups > li:nth-child(${k + 1})`;
+    tl.fromTo(`${li} .bf-g-dot`, { scale: 0 }, { scale: 1, duration: .5, ease: 'expo.out' }, at)
+      .fromTo(`${li} .bf-g-name`, { y: 10, opacity: 0 }, { y: 0, opacity: 1, duration: .55, ease: 'expo.out' }, at + .05)
+      .fromTo(`${li} .bf-sk`, { y: 14, opacity: 0, scale: .96 }, { y: 0, opacity: 1, scale: 1, duration: .6, stagger: .07, ease: 'expo.out' }, at + .12)
+      .add(() => { $(li).classList.add('lit'); Sound.blip(700 + k * 120, .09, 'sine', .04); }, at + .1);
+  });
+  const tEnd = Math.max(gStart + SKILL_GROUPS.length * gStep + 1.4, t5 + tr + .7);
+  tl.to('.bf-sk', { boxShadow: '0 0 0 1px rgba(255,255,255,.35), 0 0 18px rgba(23,189,224,.35)', duration: .35, yoyo: true, repeat: 1, stagger: .03 }, tEnd - 1.1)
+    .to(B, { opacity: 0, duration: .4, ease: 'power2.in' }, tEnd);
 }
 function finishBriefing() {
   if (!briefTl) return;
@@ -452,24 +466,17 @@ function scrambleJobs() {
       onComplete: () => { li.textContent = 'UNKNOWN'; li.classList.add('unk'); } });
   });
 }
-// a dotted route through four nodes, one per skill, in the skill colours
-// wide screens: a left-to-right route; narrow screens: top to bottom, labels beside the nodes (stay readable on phones)
-function buildRouteArt() {
-  const svg = $('#bfRoute'), tall = innerWidth < 600;
-  let xs, ys, d, label;
-  if (tall) {
-    xs = [70, 150, 70, 150]; ys = [40, 125, 210, 295];
-    d = 'M110 0 C 110 20 70 20 ' + xs[0] + ' ' + ys[0] + ys.slice(1).map((y, i) => ` S ${xs[i + 1]} ${y - 45} ${xs[i + 1]} ${y}`).join('');
-    label = (i, name) => `<text x="${xs[i] + (i % 2 ? -34 : 34)}" y="${ys[i] + 6}" text-anchor="${i % 2 ? 'end' : 'start'}">${name}</text>`;
-    svg.setAttribute('viewBox', '0 0 300 330');
-  } else {
-    xs = [70, 237, 403, 570]; ys = [78, 38, 82, 42];
-    d = 'M10 100 C 40 100 50 ' + ys[0] + ' ' + xs[0] + ' ' + ys[0] + xs.slice(1).map((x, i) => ` S ${x - 70} ${ys[i + 1]} ${x} ${ys[i + 1]}`).join('');
-    label = (i, name) => `<text x="${xs[i]}" y="${ys[i] < 60 ? ys[i] - 32 : ys[i] + 44}" text-anchor="middle">${name}</text>`;
-    svg.setAttribute('viewBox', '0 0 640 130');
-  }
-  svg.innerHTML = `<path id="bfPath" d="${d}" fill="none" stroke="#B8D8F4" stroke-width="2" stroke-dasharray="1" pathLength="1" stroke-dashoffset="1" opacity=".9"/>` +
-    CONFIG.values.map((v, i) => { const sk = SKILLS[v.skill]; return `<g class="node"><circle cx="${xs[i]}" cy="${ys[i]}" r="13" fill="${sk.color}" stroke="#fff" stroke-width="2"/><circle cx="${xs[i]}" cy="${ys[i]}" r="22" fill="none" stroke="${sk.ink}" stroke-opacity=".5"/>${label(i, sk.name.toUpperCase())}</g>`; }).join('');
+// the route line runs exactly from the first group's dot to the last one's
+function fitTrack() {
+  const body = $('.bf-sk-body'), dots = $$('.bf-g-dot'), tr = $('.bf-track'); if (!dots.length) return;
+  const B = body.getBoundingClientRect(), a = dots[0].getBoundingClientRect(), z = dots[dots.length - 1].getBoundingClientRect();
+  if (innerWidth < 600) Object.assign(tr.style, { top: (a.top + a.height / 2 - B.top) + 'px', height: (z.top - a.top) + 'px', bottom: 'auto', left: (a.left + a.width / 2 - B.left - 1) + 'px' });
+  else Object.assign(tr.style, { left: (a.left + a.width / 2 - B.left) + 'px', width: (z.left - a.left) + 'px', right: 'auto', top: (a.top + a.height / 2 - B.top - 1) + 'px' });
+}
+// the answer to the briefing's question: 10 skills in 5 groups along a route (columns on wide screens, a list on phones)
+function buildSkillsArt() {
+  $('#bfGroups').innerHTML = SKILL_GROUPS.map(g => `<li class="bf-g" style="--g:${g.color}"><i class="bf-g-dot"></i><span class="mono bf-g-name">${g.name}</span>`
+    + `<ul class="bf-sks">${g.skills.map(n => `<li class="bf-sk">${n}</li>`).join('')}</ul></li>`).join('');
 }
 
 function setScan(v) {
@@ -1294,7 +1301,127 @@ function cueGears(sk) {
   };
   return g;
 }
-const CUE_BUILDERS = { arm: cueArm, neural: cueNeural, terminal: cueTerminal, gears: cueGears };
+// electronics: a circuit board; current pulses run along the traces into a chip, the LED lights
+function cueCircuit(sk) {
+  const g = new Group(), body = new Group(); body.rotation.set(-.38, .42, .04); g.add(body);
+  const W = 1.3, H = .95, cv = document.createElement('canvas'); cv.width = 512; cv.height = 376; const x = cv.getContext('2d');
+  const px = p => [(p[0] / W + .5) * 512, (.5 - p[1] / H) * 376];
+  const paths = [[[-.6, .3], [-.3, .3], [-.3, .1], [-.15, .1]], [[-.6, -.24], [-.38, -.24], [-.38, -.06], [-.15, -.06]], [[.6, .32], [.34, .32], [.34, .1], [.15, .1]],
+    [[.6, -.3], [.28, -.3], [.28, -.08], [.15, -.08]], [[-.05, .42], [-.05, .15]], [[.05, -.42], [.05, -.15]]];
+  x.fillStyle = '#0a3324'; x.fillRect(0, 0, 512, 376);
+  x.strokeStyle = 'rgba(69,205,181,.09)'; x.lineWidth = 1;
+  for (let i = 0; i <= 512; i += 16) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i, 376); x.stroke(); }
+  for (let j = 0; j <= 376; j += 16) { x.beginPath(); x.moveTo(0, j); x.lineTo(512, j); x.stroke(); }
+  x.lineCap = 'round'; x.lineJoin = 'round';
+  paths.forEach(pt => {
+    x.strokeStyle = '#d8b56a'; x.lineWidth = 7; x.beginPath(); pt.forEach((p, i) => { const [a, b] = px(p); i ? x.lineTo(a, b) : x.moveTo(a, b); }); x.stroke();
+    const [a, b] = px(pt[0]); x.fillStyle = '#ecd08c'; x.beginPath(); x.arc(a, b, 11, 0, 7); x.fill(); x.fillStyle = '#0a3324'; x.beginPath(); x.arc(a, b, 4.5, 0, 7); x.fill();
+  });
+  x.strokeStyle = '#18AC6A'; x.lineWidth = 8; x.strokeRect(4, 4, 504, 368);
+  const tex = new CanvasTexture(cv); tex.colorSpace = SRGBColorSpace; tex.anisotropy = 8;
+  const edge = cueMat(0x0d3a28, 0x041a10, .3, .2, .6);
+  const board = new Mesh(new BoxGeometry(W, H, .05), [edge, edge, edge, edge, new MeshStandardMaterial({ map: tex, roughness: .5, metalness: .25 }), edge]); body.add(board);
+  const chip = new Group(); body.add(chip);
+  chip.add(new Mesh(new BoxGeometry(.3, .3, .07), cueMat(0x12172a, 0x000000, 0, .45, .3)));
+  const pinM = cueMat(0xd4dcec, 0x222222, .1, .95, .2);
+  for (let s = 0; s < 4; s++) for (let k = 0; k < 4; k++) {
+    const p = new Mesh(new BoxGeometry(.028, .06, .02), pinM), o = -.105 + k * .07;
+    if (s < 2) { p.position.set(o, s ? .175 : -.175, -.01); } else { p.rotation.z = Math.PI / 2; p.position.set(s === 2 ? .175 : -.175, o, -.01); }
+    chip.add(p);
+  }
+  const mark = new Mesh(new BoxGeometry(.07, .07, .01), new MeshBasicMaterial({ color: new Color(sk.ink) })); mark.position.set(.07, .07, .04); chip.add(mark);
+  const cap = new Mesh(new CylinderGeometry(.07, .07, .16, 24), cueMat(0x17355F, 0x091C56, .3, .4, .35)); cap.rotation.x = Math.PI / 2; cap.position.set(-.46, -.36, .1); body.add(cap);
+  const ledM = new MeshBasicMaterial({ color: new Color('#FEE714') }), led = new Mesh(new SphereGeometry(.05, 16, 12), ledM); led.position.set(.48, .37, .06); body.add(led);
+  const ledGlow = glowSprite(new Color('#FEE714'), .42); ledGlow.position.copy(led.position); body.add(ledGlow);
+  // one pulse per trace, running from the pad into the chip
+  const lens = paths.map(pt => { let L = 0; for (let i = 1; i < pt.length; i++) L += Math.hypot(pt[i][0] - pt[i - 1][0], pt[i][1] - pt[i - 1][1]); return L; });
+  const pulses = paths.map(() => { const s = glowSprite(new Color('#7CFFE0'), .16); body.add(s); return s; });
+  const along = (k, f, out) => { const pt = paths[k]; let d = f * lens[k]; for (let i = 1; i < pt.length; i++) { const l = Math.hypot(pt[i][0] - pt[i - 1][0], pt[i][1] - pt[i - 1][1]); if (d <= l || i === pt.length - 1) { const u = Math.min(1, d / l); out.set(pt[i - 1][0] + (pt[i][0] - pt[i - 1][0]) * u, pt[i - 1][1] + (pt[i][1] - pt[i - 1][1]) * u, .045); return; } d -= l; } };
+  g.userData.tick = (dt, t) => {
+    const b = g.userData.build, sb = stage(b, 0, .3);
+    board.scale.set(Math.max(.001, sb), Math.max(.001, stage(b, .06, .3)), 1);
+    const sc = stage(b, .3, .28); chip.visible = sc > .001; chip.position.z = .06 + .6 * (1 - sc); cap.visible = sc > .5;
+    const on = stage(b, .55, .25);
+    pulses.forEach((s, k) => { along(k, (t * .55 + k * .19) % 1, s.position); s.material.opacity = on * .95; });
+    const lit = stage(b, .72, .15); ledM.color.set('#FEE714').multiplyScalar(.25 + .75 * lit);
+    ledGlow.material.opacity = lit * (.65 + .35 * Math.sin(t * 7)) + 1.4 * flash(b, .74);
+  };
+  return g;
+}
+// design & innovation: a lightbulb over a holographic blueprint; the filament ignites
+function cueBulb(sk) {
+  const g = new Group(), body = new Group(); body.rotation.set(-.08, .32, 0); body.position.y = -.12; g.add(body);
+  const cv = document.createElement('canvas'); cv.width = cv.height = 512; const x = cv.getContext('2d');
+  x.strokeStyle = 'rgba(184,216,244,.22)'; x.lineWidth = 1;
+  for (let i = 0; i <= 512; i += 32) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i, 512); x.stroke(); x.beginPath(); x.moveTo(0, i); x.lineTo(512, i); x.stroke(); }
+  x.strokeStyle = 'rgba(184,216,244,.6)'; x.lineWidth = 2.5; x.setLineDash([10, 8]);
+  x.beginPath(); x.arc(256, 232, 150, 0, 7); x.stroke(); x.beginPath(); x.moveTo(40, 232); x.lineTo(472, 232); x.moveTo(256, 40); x.lineTo(256, 470); x.stroke();
+  x.setLineDash([]); x.strokeStyle = 'rgba(254,231,20,.75)'; x.lineWidth = 3;
+  [[90, 470, 422, 470], [90, 458, 90, 482], [422, 458, 422, 482]].forEach(([a, b, c, d]) => { x.beginPath(); x.moveTo(a, b); x.lineTo(c, d); x.stroke(); });
+  x.strokeStyle = 'rgba(184,216,244,.9)'; x.lineWidth = 3; x.strokeRect(8, 8, 496, 496);
+  const bt = new CanvasTexture(cv); bt.colorSpace = SRGBColorSpace;
+  const print = new Mesh(new PlaneGeometry(1.5, 1.5), new MeshBasicMaterial({ map: bt, transparent: true, depthWrite: false, blending: AdditiveBlending, toneMapped: false }));
+  print.position.set(0, .3, -.32); body.add(print);
+  const prof = [[.15, 0], [.165, .08], [.24, .22], [.35, .42], [.37, .56], [.31, .74], [.17, .86], [.001, .9]].map(([a, b]) => new Vector2(a, b));
+  const glassM = new MeshPhysicalMaterial({ color: 0xfff3cf, transparent: true, opacity: .2, roughness: .05, metalness: 0, clearcoat: 1, depthWrite: false, side: DoubleSide, emissive: 0xffc94a, emissiveIntensity: 0 });
+  const glass = new Mesh(new LatheGeometry(prof, 48), glassM); body.add(glass);
+  const baseG = new Group(); body.add(baseG);
+  const chromeM = cueMat(0xdfe6f2, 0x1a1f2e, .1, 1, .18);
+  const sock = new Mesh(new CylinderGeometry(.155, .145, .26, 32), chromeM); sock.position.y = -.13; baseG.add(sock);
+  [-.04, -.11, -.18].forEach(y => { const r = new Mesh(new TorusGeometry(.155, .012, 6, 32), chromeM); r.rotation.x = Math.PI / 2; r.position.y = y; baseG.add(r); });
+  const tip = new Mesh(new ConeGeometry(.07, .08, 20), cueMat(0x17355F, 0x091C56, .3, .5, .4)); tip.rotation.x = Math.PI; tip.position.y = -.3; baseG.add(tip);
+  const coil = new CatmullRomCurve3(Array.from({ length: 40 }, (_, i) => { const a = i / 39 * Math.PI * 8; return new Vector3(Math.cos(a) * .045, .32 + i / 39 * .2, Math.sin(a) * .045); }));
+  const filM = new MeshBasicMaterial({ color: new Color('#FFD56A'), toneMapped: false });
+  const fil = new Mesh(new TubeGeometry(coil, 120, .008, 6), filM); body.add(fil);
+  [-.06, .06].forEach(s => { const w = new Mesh(new CylinderGeometry(.006, .006, .34, 6), chromeM); w.position.set(s, .17, 0); body.add(w); });
+  const glow = glowSprite(new Color('#FFC94A'), 1.1); glow.position.y = .44; body.add(glow);
+  const sparks = [0, 1, 2].map(k => { const s = glowSprite(new Color('#FEE714'), .16); body.add(s); return s; });
+  g.userData.tick = (dt, t) => {
+    const b = g.userData.build, sp = stage(b, 0, .3);
+    print.scale.setScalar(Math.max(.001, .6 + .4 * sp)); print.material.opacity = sp * .9;
+    baseG.position.y = -.5 * (1 - stage(b, .18, .28)); baseG.visible = b > .18;
+    glassM.opacity = .2 * stage(b, .35, .25);
+    const on = stage(b, .62, .18), pulse = .85 + .15 * Math.sin(t * 2.4);
+    filM.color.set('#FFD56A').multiplyScalar(.15 + .85 * on);
+    glassM.emissiveIntensity = .35 * on * pulse;
+    glow.material.opacity = on * .75 * pulse + 1.2 * flash(b, .64);
+    sparks.forEach((s, k) => { const a = t * .9 + k * 2.1; s.position.set(Math.cos(a) * .55, .45 + Math.sin(a * 1.3) * .2, Math.sin(a) * .3); s.material.opacity = stage(b, .8 + k * .05, .15) * (.6 + .4 * Math.sin(t * 5 + k)); });
+  };
+  return g;
+}
+// entrepreneurship: a growing bar chart, a rising arrow, and coins
+function cueChart(sk) {
+  const g = new Group(), body = new Group(); body.rotation.set(-.26, -.5, 0); g.add(body);
+  const plate = new Mesh(new BoxGeometry(1.25, .05, .5), cueMat(0x17355F, 0x091C56, .3, .5, .4)); plate.position.y = -.47; body.add(plate);
+  const cols = ['#3B2F9E', '#5b4fd1', '#707CEC', '#A9B1FF'], hs = [.32, .52, .74, 1.0], xs = [-.43, -.145, .145, .43];
+  const bars = hs.map((h, i) => {
+    const geo = new BoxGeometry(.2, h, .2); geo.translate(0, h / 2, 0);
+    const c = new Color(cols[i]), m = new Mesh(geo, cueMat(c, c, .4, .3, .35)); m.position.set(xs[i], -.445, 0); body.add(m); return m;
+  });
+  const tops = xs.map((x, i) => new Vector3(x, -.445 + hs[i] + .14, .02));
+  const path = new CatmullRomCurve3([tops[0].clone().add(new Vector3(-.12, -.06, 0)), ...tops, tops[3].clone().add(new Vector3(.13, .14, 0))]);
+  const arrowM = new MeshBasicMaterial({ color: new Color('#FEE714'), toneMapped: false });
+  const arrow = new Mesh(new TubeGeometry(path, 96, .02, 8), arrowM); body.add(arrow);
+  const total = arrow.geometry.index.count;
+  const head = new Mesh(new ConeGeometry(.055, .14, 16), arrowM); body.add(head);
+  const end = path.getPointAt(1), tan = path.getTangentAt(1);
+  head.position.copy(end); head.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), tan);
+  const coinM = new MeshStandardMaterial({ color: 0xF5C542, emissive: 0x5a3a00, emissiveIntensity: .5, metalness: .9, roughness: .25 });
+  const coins = [0, 1, 2].map(k => { const c = new Mesh(new CylinderGeometry(.085, .085, .022, 32), coinM); c.rotation.x = Math.PI / 2; body.add(c); return c; });
+  g.userData.tick = (dt, t) => {
+    const b = g.userData.build;
+    plate.scale.x = Math.max(.001, stage(b, 0, .25));
+    bars.forEach((m, i) => { m.scale.y = Math.max(.001, stage(b, .12 + i * .1, .3)); });
+    const pa = stage(b, .55, .3); arrow.geometry.setDrawRange(0, Math.floor(total * pa / 3) * 3); head.visible = pa > .97;
+    coins.forEach((c, k) => {
+      const s = stage(b, .82 + k * .05, .15), ph = t * .8 + k * 2.1;
+      c.visible = s > .01; c.scale.setScalar(Math.max(.001, s));
+      c.position.set(.62 + Math.sin(ph) * .06, .2 + k * .2 + Math.sin(ph * 1.3) * .05, .1); c.rotation.y = t * 2.2 + k;
+    });
+  };
+  return g;
+}
+const CUE_BUILDERS = { arm: cueArm, neural: cueNeural, terminal: cueTerminal, gears: cueGears, circuit: cueCircuit, bulb: cueBulb, chart: cueChart };
 
 /* ---------- curved text rings: each planet wears its skill as a ring of type ----------
    A tilted open band around the planet. Its text is drawn once to a canvas strip (Chakra Petch,
@@ -1636,7 +1763,7 @@ function updateExhaust(dt) {
 
 function buildDust() {
   const n = innerWidth < 760 ? 1400 : 2400, pos = new Float32Array(n * 3), size = new Float32Array(n), r = mulberry(21);
-  for (let i = 0; i < n; i++) { pos[i * 3] = (r() - .5) * 220; pos[i * 3 + 1] = (r() - .5) * 150; pos[i * 3 + 2] = 120 - r() * 620; size[i] = .4 + r() * .9; }
+  for (let i = 0; i < n; i++) { pos[i * 3] = (r() - .5) * 220; pos[i * 3 + 1] = (r() - .5) * 150; pos[i * 3 + 2] = 120 - r() * 720; size[i] = .4 + r() * .9; }
   const g = new BufferGeometry(); g.setAttribute('position', new BufferAttribute(pos, 3)); g.setAttribute('size', new BufferAttribute(size, 1));
   const m = new ShaderMaterial({
     uniforms: { pr: { value: renderer.getPixelRatio() } },
@@ -1697,7 +1824,7 @@ const FIN_DIR = { land: new Vector3(1, .42, .38).normalize(), port: new Vector3(
 function finaleFrame(portrait) {
   const C = new Vector3(); CONFIG.values.forEach(v => C.add(new Vector3(...v.pos))); C.divideScalar(CONFIG.values.length);
   const d = portrait ? FIN_DIR.port : FIN_DIR.land, fov = portrait ? 50 : 38;
-  const box = portrait ? [-.8, .8, -.1, .84] : [-.84, .84, .04, .82];
+  const box = portrait ? [-.8, .8, -.06, .84] : [-.86, .86, .16, .84];
   const cam = new PerspectiveCamera(fov, innerWidth / innerHeight, .1, 4000), v = new Vector3(), rt = new Vector3(), up = new Vector3();
   for (let dist = 120; dist <= 1000; dist += 10) {
     const pos = C.clone().addScaledVector(d, dist);
@@ -2080,9 +2207,11 @@ function showTagline(i) {
 }
 // small white icons for the skill badge (drawn for this page in the SKAI HUD style)
 const SKILL_ICONS = {
+  design: '<svg viewBox="0 0 24 24"><path d="M12 2.5a6.5 6.5 0 0 0-3.9 11.7c.6.5.9 1.1.9 1.8v.5h6v-.5c0-.7.3-1.3.9-1.8A6.5 6.5 0 0 0 12 2.5z" fill="#FEE714" stroke="#fff" stroke-width="1.4"/><path d="M9.5 19h5M10.2 21.5h3.6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><path d="M12 6.2v3.6M10.2 8h3.6" stroke="#B96D00" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  entrepreneurship: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="14" width="3.5" height="6.5" fill="#A9B1FF"/><rect x="10" y="10.5" width="3.5" height="10" fill="#A9B1FF"/><rect x="16.5" y="6.5" width="3.5" height="14" fill="#A9B1FF"/><path d="M3 10.5 9 5.5l3.5 2.5L20 2.8M15.8 2.6H20v4.2" stroke="#FEE714"/></svg>',
   robotics: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="8" width="15" height="11" rx="3"/><path d="M12 4.5V8M2.5 12.5v3M21.5 12.5v3M9.5 16h5"/><circle cx="12" cy="3.6" r="1.1" fill="#fff"/><circle cx="9.3" cy="12.3" r="1.3" fill="#fff" stroke="none"/><circle cx="14.7" cy="12.3" r="1.3" fill="#fff" stroke="none"/></svg>',
   ai: '<svg viewBox="0 0 24 24"><path d="M12 1.8 21 7v10l-9 5.2L3 17V7z" fill="#FCA01B" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 9l4 3-4 3M12 12h4.5" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="9" r="1.5" fill="#fff"/><circle cx="8" cy="15" r="1.5" fill="#fff"/><circle cx="12" cy="12" r="1.6" fill="#fff"/><circle cx="16.5" cy="12" r="1.5" fill="#fff"/></svg>',
-  coding: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round"><rect x="5" y="5" width="14" height="14" rx="1.5" fill="#108D55"/><path d="M8.5 2v3M12 2v3M15.5 2v3M8.5 19v3M12 19v3M15.5 19v3M2 8.5h3M2 12h3M2 15.5h3M19 8.5h3M19 12h3M19 15.5h3"/><path d="M10.2 9.8 8 12l2.2 2.2M13.8 9.8 16 12l-2.2 2.2" stroke-linejoin="round"/></svg>',
+  electronics: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round"><rect x="5" y="5" width="14" height="14" rx="1.5" fill="#108D55"/><path d="M8.5 2v3M12 2v3M15.5 2v3M8.5 19v3M12 19v3M15.5 19v3M2 8.5h3M2 12h3M2 15.5h3M19 8.5h3M19 12h3M19 15.5h3"/><path d="M10.2 9.8 8 12l2.2 2.2M13.8 9.8 16 12l-2.2 2.2" stroke-linejoin="round"/></svg>',
   mechanics: '<svg viewBox="0 0 24 24"><path d="M10.4 1.5h3.2l.5 2.9 1.9.8 2.4-1.7 2.3 2.3-1.7 2.4.8 1.9 2.9.5v3.2l-2.9.5-.8 1.9 1.7 2.4-2.3 2.3-2.4-1.7-1.9.8-.5 2.9h-3.2l-.5-2.9-1.9-.8-2.4 1.7-2.3-2.3 1.7-2.4-.8-1.9-2.9-.5v-3.2l2.9-.5.8-1.9-1.7-2.4 2.3-2.3 2.4 1.7 1.9-.8z" fill="#FCA01B" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/><circle cx="12" cy="12" r="3.4" fill="#154777" stroke="#fff" stroke-width="1.3"/></svg>'
 };
 function hideTagline() {
