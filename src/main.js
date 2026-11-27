@@ -53,12 +53,16 @@ const Sound = {
   FILES: ['amb-space', 'sfx-scan', 'sfx-granted', 'sfx-door', 'sfx-warp', 'sfx-flyby', 'sfx-robotics', 'sfx-ai', 'sfx-coding', 'sfx-mechanics', 'sfx-finale',
     'vo-granted', 'vo-brief-dest', 'vo-brief-1', 'vo-brief-2', 'vo-brief-route', 'sfx-scramble', 'sfx-route', 'vo-welcome', 'vo-1', 'vo-2', 'vo-3', 'vo-4', 'vo-finale'],
   raw: {}, lib: {},
-  preload() {
-    this.FILES.forEach(k => fetch(assetUrl(`audio/${k}.mp3`)).then(r => r.ok ? r.arrayBuffer() : null).then(b => { if (!b) return; this.raw[k] = b; if (this.ctx) this.decode(k); }).catch(() => {}));
+  // Ogg Opus where the browser can decode it, MP3 otherwise (older Safari); the offline single-file build embeds MP3 only
+  fmt: !window.SKAI_ASSETS && typeof Audio !== 'undefined' && new Audio().canPlayType('audio/ogg; codecs="opus"') ? 'ogg' : 'mp3',
+  load(k, fmt) {
+    return fetch(assetUrl(`audio/${k}.${fmt}`)).then(r => r.ok ? r.arrayBuffer() : null).then(b => { if (!b) return; this.raw[k] = { b, fmt }; if (this.ctx) this.decode(k); }).catch(() => {});
   },
+  preload() { this.FILES.forEach(k => this.load(k, this.fmt)); },
   decode(k) {
-    const b = this.raw[k]; if (!b || this.lib[k]) return; delete this.raw[k];
-    this.ctx.decodeAudioData(b).then(buf => { this.lib[k] = buf; }).catch(() => {});
+    const r = this.raw[k]; if (!r || this.lib[k]) return; delete this.raw[k];
+    this.ctx.decodeAudioData(r.b).then(buf => { this.lib[k] = buf; })
+      .catch(() => { if (r.fmt === 'ogg') this.load(k, 'mp3'); });   // reports Opus support but can't decode it: fall back
   },
   has(k) { return !!(this.ctx && this.lib[k]); },
   dur(k) { return this.has(k) && this.on ? this.lib[k].duration : 0; },
@@ -1340,7 +1344,7 @@ function updateRings(dt) { rings.forEach(R => { if (R && R.mesh.visible) R.mesh.
    India is turned toward the lens. Visible at the start and during the launch flight only. */
 let earth = null;
 // position in the start shot's camera space (x right, y up, -z forward), radius in world units
-const EARTH = { r: 58, land: [20, -66, -100], port: [10, -74, -110], maps: ['earth/earth-day.jpg', 'earth/earth-night.jpg', 'earth/earth-clouds.jpg'] };
+const EARTH = { r: 58, land: [20, -66, -100], port: [10, -74, -110], maps: ['earth/earth-day.webp', 'earth/earth-night.webp', 'earth/earth-clouds.webp'] };
 function buildEarth() {
   const mat = new ShaderMaterial({
     uniforms: { day: { value: null }, night: { value: null }, clouds: { value: null }, sunDir: { value: new Vector3(0, 1, 0) }, time: { value: 0 }, op: { value: 0 } },

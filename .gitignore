@@ -4,3 +4,4 @@ dist-single/
 tests/shots/
 .DS_Store
 .vercel/
+video/

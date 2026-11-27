@@ -24,6 +24,7 @@ Other commands:
 
 - `http://localhost:5173/`: full experience from the lock
 - `http://localhost:5173/#space`: skip the lock and door (sound off), the tour starts straight away
+- `http://localhost:5173/?capture`: fixed full quality (no adaptive resolution), used to record the promo video frame by frame
 - `http://localhost:5173/#kiosk`: exhibition mode (fullscreen on first tap, resets after 75 s idle)
 
 ## Project layout
@@ -33,8 +34,8 @@ index.html            Markup + all CSS (design tokens at the top of <style>)
 src/config.js         CONTENT: SKILLS (names, colours, 3D cue) and one tagline + skill per planet, tour timing
 public/brand/         SKAI Space wordmark SVGs, exported from the Figma file
 public/fonts/         Chakra Petch 500-700 and Inter 400-600 (latin, woff2, OFL licences included)
-public/audio/         ElevenLabs voice-over (vo-*) and sound design (sfx-*, amb-space loop), mp3, 540 KB
-public/earth/         Earth day / night-lights / cloud maps (NASA, public domain; see CREDITS.txt)
+public/audio/         ElevenLabs voice-over (vo-*) and sound design (sfx-*, amb-space loop): Ogg Opus (used by modern browsers) + MP3 fallback
+public/earth/         Earth day / night-lights / cloud maps as WebP (NASA, public domain; see CREDITS.txt)
 public/og.jpg         1200x630 link-preview image · public/favicon.svg
 vercel.json           Vercel build settings, cache headers and security headers (CSP)
 docs/                 Notes that should not be published (old narration notes)

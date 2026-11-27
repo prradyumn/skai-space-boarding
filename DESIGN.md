@@ -98,12 +98,14 @@ Hero model built in code (`buildRocket`): gloss clear-coat paint over a 2048px l
 - **Everything is prepared behind the loading screen** (`prewarm`): every shader is compiled and every texture uploaded, including objects that only appear later (rocket, Earth, rings, skill objects), and one frame is rendered through the full effects chain. Nothing compiles or uploads mid-tour.
 - **Planet surfaces are baked once** (`bakePlanets`): the procedural noise runs one time per planet into an equirectangular texture (3072 px desktop, 2048 phones; clouds 2048/1024), in strips over several frames. Per frame, planets only sample that texture and compute lighting, rim and gold seams.
 - **Adaptive resolution** (`watchFrameRate`): starts sharp (desktop 1.75x, phones 1.5x, up to the screen's own density, max 2x), checks every second, steps down 15% when below ~48 fps and back up after 3 smooth seconds. Effects only switch off (bloom, flare, clouds, aurora; levels 2/1/0) once resolution is already at 1x.
-- **Anti-aliasing:** 4x multisampling in the composer on desktop; FXAA on phones.
+- **Anti-aliasing:** FXAA on phones and standard-density screens; none needed on Retina-class screens (already supersampled). **Never use MSAA in the composer**: the lens flare copies from the render target, which is illegal on a multisampled buffer and produced black/partial frames.
+- **WebGL resets:** if the browser drops the context, rendering pauses and, on restore, the sky cube map and planet textures are re-baked (render-target contents are wiped).
+- **Fast first paint:** the lock appears as soon as fonts load; the 3D world builds, bakes and pre-warms in the background during the scan and briefing. The door waits for it if needed ("Preparing launch").
 - **Clean image:** crisp bloom (strength .6, radius .4, threshold .82); colour fringe only during the warp (tiny on desktop, none on phones); light grain on desktop only.
 - Stars are sharp points (6000 desktop / 3400 phones); the baked sky holds only the nebula and galactic band.
 - Text in 3D at 2x where the GPU allows: ring strips 8192 px (4096 on phones), code window 1280 px (640 on phones).
 - Phones: bloom buffers at 40% resolution; the door's light sweep is off. Sound suspends while the tab is hidden; rendering pauses.
-- Media (audio 600 KB, Earth maps 510 KB) loads after the page appears. The only image files are the brand SVGs, Earth maps and the preview image.
+- Media loads after the page appears: audio as Ogg Opus (~630 KB) with an automatic MP3 fallback for browsers that can't decode Opus; Earth maps as WebP (~395 KB). The link-preview image stays JPEG (social platforms), logos stay SVG. The only image files are the brand SVGs, Earth maps and the preview image.
 
 ## Never use
 Gradient text, glass cards, emoji, bouncing UI, stock photos, invented metrics, a recoloured or redrawn SKAI wordmark, fonts other than Chakra Petch and Inter.

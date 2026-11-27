@@ -14,7 +14,8 @@ const media = {};
 for (const dir of ['audio', 'earth']) {
   if (!fs.existsSync(`public/${dir}`)) continue;
   for (const f of fs.readdirSync(`public/${dir}`)) {
-    const type = f.endsWith('.mp3') ? 'audio/mpeg' : f.endsWith('.jpg') ? 'image/jpeg' : null;
+    // MP3 (plays everywhere) and WebP; the Ogg copies are only for the hosted build
+    const type = f.endsWith('.mp3') ? 'audio/mpeg' : f.endsWith('.webp') ? 'image/webp' : null;
     if (type) media[`${dir}/${f}`] = `data:${type};base64,` + fs.readFileSync(`public/${dir}/${f}`).toString('base64');
   }
 }
