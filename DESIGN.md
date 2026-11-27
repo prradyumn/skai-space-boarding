@@ -50,6 +50,7 @@ A launch-bay boarding sequence that plays like a short film. One tap scans the v
 |---|---|---|
 | UI enter | 0.6–1.1s, 0.06–0.12s stagger | `expo.out` |
 | UI exit | 0.35s | `power2.in` |
+| Lock tap → scan | the print draws (about 1.3s), a 0.55s beat ("Reading print"), then a 1.7s scan; granted about 4s after the tap | `power2.out` / linear |
 | Door open | 2.1s halves, 2.3s push-in | `expo.inOut` / `power2.in` |
 | Flight leg | 2.6–3.6s by distance (`CONFIG.tour`) | quad in-out on the path |
 | Tagline + badge in | at 70% of the approach; badge slides 0.8s, lines mask-reveal 1.1s | `expo.out` |

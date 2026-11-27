@@ -117,7 +117,7 @@ body.granted .bulk .lamps i.r{background:var(--ok);box-shadow:0 0 8px var(--ok);
 #core.granted .fp path{stroke:var(--ok)}
 .core-pulse{position:absolute;inset:-1px;border-radius:50%;border:1px solid var(--accent);opacity:0;pointer-events:none}
 .lock-caption{position:absolute;left:50%;top:calc(100% + 26px);transform:translateX(-50%);white-space:nowrap;text-align:center}
-.lock-caption .t2{color:var(--muted);margin-top:12px}
+.lock-caption .t2{color:var(--muted);margin-top:12px;text-shadow:0 0 6px #040916,0 0 14px #040916}   /* stays legible over the door seam */
 /* the call to action: an orange-outlined pill that breathes until the first tap */
 .lock-caption .t1{display:inline-flex;align-items:center;gap:10px;padding:12px 24px;border:2px solid var(--orange);border-radius:999px;background:rgba(252,160,27,.14);
   color:var(--white);font-size:clamp(14px,1.3vw,17px);font-weight:700;letter-spacing:.14em;animation:cta-breathe 2.2s ease-in-out infinite}
@@ -139,6 +139,9 @@ body.tapped .lock-caption .t1{animation:none;border-color:rgba(184,216,244,.35);
 /* small phones: smaller lock so the title, caption and readout all fit */
 @media (max-height:700px) and (max-aspect-ratio:9/10){ #lock{width:min(300px,64vw)} .readout{top:calc(100% + 96px);line-height:1.7} }
 /* phone landscape: lock sized by height, readout beside it */
+/* portrait: the lock scales with the door socket (--sockR, set in buildDoorArt); caption and readout sit just below the socket's rim */
+@media (max-aspect-ratio:9/10){ #lock{width:calc(var(--sockR,180px) * 1.55)} .lock-caption{top:calc(50% + var(--sockR,180px) + 20px)} .readout{top:calc(50% + var(--sockR,180px) + 112px);line-height:1.75} }
+@media (max-width:760px) and (max-aspect-ratio:9/10){ .readout{display:none} }   /* phones: lock, one pill, one status line */
 @media (max-height:500px) and (min-aspect-ratio:9/10){ #lock{width:min(220px,46vh)} .lock-caption{top:calc(100% + 8px)} .lock-caption .t1{padding:8px 16px;font-size:13px} .lock-caption .t2{display:none}
   .readout{left:calc(100% + 36px);top:50%;transform:translateY(-50%);width:230px;text-align:left;line-height:1.7} #skip{bottom:calc(10px + var(--sab))} .bulk{height:38px} }
 #skip{position:fixed;right:calc(28px + var(--sar));bottom:calc(66px + var(--sab));z-index:61;color:var(--muted);padding:10px 4px}

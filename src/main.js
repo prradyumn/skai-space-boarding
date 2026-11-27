@@ -265,7 +265,10 @@ function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Ma
 /* ---------- detailed blast door (SVG, generated at the real pixel size) ---------- */
 function buildDoorArt() {
   const W = Math.ceil(innerWidth / 2), H = innerHeight, D = 26, P = 76;
-  const sockR = Math.min(230, innerWidth * .48, innerHeight * .42), cy = H / 2;   // fits short landscape phones too
+  // portrait phones: a smaller socket (about 80% of the width, less on short screens) leaves room for the caption below it
+  const tall = innerWidth / innerHeight <= .9;
+  const sockR = tall ? Math.min(200, innerWidth * .41, innerHeight * .19) : Math.min(230, innerWidth * .48, innerHeight * .42), cy = H / 2;
+  document.documentElement.style.setProperty('--sockR', sockR.toFixed(1) + 'px');   // the lock, caption and readout size off this (index.html)
   const small = innerWidth < 760;
   $$('.door-half .art').forEach((el, si) => {
     const phase = si ? P / 2 : 0, id = 'd' + si;
@@ -324,7 +327,7 @@ function buildDoorArt() {
     for (let y = -P + phase; y < H + P; y += P) {
       s += `<path d="M${W - D} ${y} L${W + D - 4} ${y + 10} L${W + D - 4} ${y + P / 2 - 10} L${W - D} ${y + P / 2} Z" fill="url(#${id}t)" stroke="rgba(0,0,0,.55)"/>`;
       s += `<path d="M${W - D} ${y + .5} L${W + D - 4} ${y + 10.5}" stroke="rgba(170,200,255,.25)"/>`;
-      s += `<rect x="${W + D - 7}" y="${y + 12}" width="3" height="${P / 2 - 24}" fill="#FCA01B" opacity=".55"/>`;
+      s += `<rect x="${W + D - 7}" y="${y + 12}" width="3" height="${P / 2 - 24}" fill="#FCA01B" opacity="${tall ? .28 : .55}"/>`;   // quieter seam on narrow screens
     }
     // lock socket recess with bolt ring
     s += `<circle cx="${W}" cy="${cy}" r="${sockR}" fill="url(#${id}s)"/>`;
@@ -413,8 +416,8 @@ function toBiometric() {
   tl.to('#core .glyph', { opacity: 0, scale: .6, duration: .35, ease: 'power2.in', onComplete: () => { lockState.phase = 'bio'; } })
     .to('#core .fp', { opacity: 1, duration: .4 }, '-=.05')
     .to('#core .fp path', { attr: { 'stroke-dashoffset': .8 }, duration: .9, stagger: .012, ease: 'power2.out' }, '<')
-    .add(() => { $('#cap2').textContent = 'Verifying cadet'; }, '<')
-    .add(startScan, '-=.5');
+    .add(() => { $('#cap1').textContent = 'Reading print'; $('#cap2').textContent = 'Hold still, cadet'; }, '<')
+    .add(startScan, '+=.55');   // a beat after the print is drawn, so the tap and the scan read as two moments
 }
 
 /* ---------- mission briefing: Destination 2040, route uncharted ----------
@@ -650,13 +653,13 @@ function setScan(v) {
 function startScan() {
   lockState.phase = 'scanning';
   if (!Sound.play('sfx-scan', { vol: .8 })) Sound.scanStart();
-  $('#cap1').textContent = 'Scanning';
+  $('#cap1').textContent = 'Scanning'; $('#cap2').textContent = 'Verifying cadet';
   gsap.to('#core .scanline', { opacity: 1, duration: .2 });
   gsap.fromTo('#core .scanline', { top: '18%' }, { top: '82%', duration: .7, repeat: -1, yoyo: true, ease: 'sine.inOut', id: 'scanY' });
   lockState.tween?.kill();
   const o = { v: lockState.scan };
   lockState.tween = gsap.to(o, {
-    v: 1, duration: 1.4 * (1 - lockState.scan), ease: 'none',
+    v: 1, duration: 1.7 * (1 - lockState.scan), ease: 'none',
     onUpdate: () => setScan(o.v),
     onComplete: () => grant(false)
   });
