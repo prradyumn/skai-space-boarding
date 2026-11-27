@@ -51,7 +51,7 @@ const Sound = {
   /* ElevenLabs voice-over and sound effects (public/audio). Fetched in the background after boot,
      decoded once audio is allowed (first tap). Anything missing falls back to the synth sounds. */
   FILES: ['amb-space', 'sfx-scan', 'sfx-granted', 'sfx-door', 'sfx-warp', 'sfx-flyby', 'sfx-robotics', 'sfx-ai', 'sfx-coding', 'sfx-mechanics', 'sfx-finale',
-    'vo-granted', 'vo-brief-dest', 'vo-brief-1', 'vo-brief-2', 'vo-brief-route', 'sfx-scramble', 'sfx-route', 'vo-welcome', 'vo-1', 'vo-2', 'vo-3', 'vo-4', 'vo-finale'],
+    'vo-granted', 'vo-brief-dest', 'vo-brief-1', 'vo-brief-2', 'vo-brief-route', 'sfx-scramble', 'sfx-route', 'vo-welcome', 'vo-1', 'vo-2', 'vo-3', 'vo-4', 'vo-closing', 'vo-finale'],
   raw: {}, lib: {},
   // Ogg Opus where the browser can decode it, MP3 otherwise (older Safari); the offline single-file build embeds MP3 only
   fmt: !window.SKAI_ASSETS && typeof Audio !== 'undefined' && new Audio().canPlayType('audio/ogg; codecs="opus"') ? 'ogg' : 'mp3',
@@ -1057,7 +1057,7 @@ const stage = (b, start, len) => { const x = MathUtils.clamp((b - start) / len, 
 const flash = (b, at) => Math.exp(-Math.pow((b - at) / .035, 2));
 function updateSkillCues(dt, t) {
   // one focal point: during the tour a cue shows only at (and on the way to) its own planet; all show at the start and the finale
-  const all = current <= 0 || current === N_STOPS - 1;
+  const all = current <= 0;   // all four at the start only; the finale stays clean
   cues.forEach((g, k) => {
     if (!g) return;
     g.visible = !!((all && !leg) || current === k + 1 || (leg && leg.to === k + 1));   // three.js hides only on === false
@@ -1635,14 +1635,14 @@ function stopFrames() {
     const pos = look.clone().add(portrait ? new Vector3(r * .3, r * .35, r * 5.1) : new Vector3(r * .2, r * .35, r * 5.8));
     f.push({ pos, look });
   });
-  f.push(portrait ? { pos: new Vector3(0, 40, 40), look: new Vector3(-5, -108, -250) } : { pos: new Vector3(130, 70, 20), look: new Vector3(-90, -60, -270) });
+  f.push(finaleFrame(portrait));
   return f;
 }
 function buildPath() {
   frames = stopFrames();
   if (planets.length) buildIndiaLights();
   if (renderer) buildConstellation();
-  placeSkillCues(); placeEarth();
+  placeSkillCues(); placeEarth(); buildRoute3D();
   const portrait = isPortrait();
   frameLocal(frames[0], portrait ? 4 : 7.2, portrait ? 1.8 : -3.2, portrait ? -30 : -27, hoverPos);
   hoverFwd.set(...CONFIG.values[0].pos).sub(hoverPos).normalize(); hoverFwd.y += .45; hoverFwd.normalize();
@@ -1655,6 +1655,92 @@ function stopCam(i, t, oP, oL) {
   const fr = frames[Math.max(0, i)]; oP.copy(fr.pos); oL.copy(fr.look);
   const r = i > 0 && i < N_STOPS - 1 ? CONFIG.values[i - 1].r : 4;
   oP.x += Math.sin(t * .13) * r * .22; oP.y += Math.sin(t * .09 + 1) * r * .1;
+}
+
+/* ---------- finale: the route, completed ----------
+   Pays off the briefing's "plotting route": the camera pulls back to frame the four planets, the rocket runs a route
+   through them (robotics → AI & data → coding → mechanics), drawing a line in the skill colours and lighting each
+   planet as it passes, then the closing line, the SKAI logo and the call to action arrive. */
+let route = null;
+const FIN_DIR = { land: new Vector3(1, .42, .38).normalize(), port: new Vector3(.22, .95, .8).normalize() };
+// camera for the finale: fitted so all four planets sit in the upper part of the frame (text lives below)
+function finaleFrame(portrait) {
+  const C = new Vector3(); CONFIG.values.forEach(v => C.add(new Vector3(...v.pos))); C.divideScalar(CONFIG.values.length);
+  const d = portrait ? FIN_DIR.port : FIN_DIR.land, fov = portrait ? 50 : 38;
+  const box = portrait ? [-.8, .8, -.1, .84] : [-.84, .84, .04, .82];
+  const cam = new PerspectiveCamera(fov, innerWidth / innerHeight, .1, 4000), v = new Vector3(), rt = new Vector3(), up = new Vector3();
+  for (let dist = 120; dist <= 1000; dist += 10) {
+    const pos = C.clone().addScaledVector(d, dist);
+    cam.position.copy(pos); cam.lookAt(C); cam.updateMatrixWorld();
+    up.setFromMatrixColumn(cam.matrixWorld, 1);
+    const look = C.clone().addScaledVector(up, -dist * Math.tan(fov * Math.PI / 360) * (portrait ? .36 : .42));
+    cam.lookAt(look); cam.updateMatrixWorld();
+    rt.setFromMatrixColumn(cam.matrixWorld, 0); up.setFromMatrixColumn(cam.matrixWorld, 1);
+    const ok = CONFIG.values.every(val => [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([a, b]) => {
+      v.set(...val.pos).addScaledVector(rt, a * val.r * 1.3).addScaledVector(up, b * val.r * 1.3).project(cam);
+      return v.x >= box[0] && v.x <= box[1] && v.y >= box[2] && v.y <= box[3];
+    }));
+    if (ok) return { pos, look };
+  }
+  return { pos: C.clone().addScaledVector(d, 700), look: C };
+}
+function buildRoute3D() {
+  if (!renderer || !planets.length) return;
+  if (route) { scene.remove(route.group); route.pts.geometry.dispose(); route.line.geometry.dispose(); }
+  const fr = frames[N_STOPS - 1], toCam = fr.pos.clone().sub(fr.look).normalize();
+  // waypoints sit just in front of and above each planet, so the line never hides behind one
+  const way = CONFIG.values.map(v => new Vector3(...v.pos).addScaledVector(toCam, v.r * 1.6).add(new Vector3(0, v.r * .55, 0)));
+  const a = way[0], b = way[way.length - 1], dir = b.clone().sub(a).normalize();
+  const curve = new CatmullRomCurve3([a.clone().addScaledVector(dir, -70).add(new Vector3(0, -12, 0)), ...way, b.clone().addScaledVector(dir, 80).add(new Vector3(0, 16, 0))], false, 'centripetal');
+  const N = 480, P = curve.getSpacedPoints(N - 1);
+  const uk = way.map(w => { let bi = 0, bd = Infinity; P.forEach((p, i) => { const dd = p.distanceToSquared(w); if (dd < bd) { bd = dd; bi = i; } }); return bi / (N - 1); });
+  const cols = CONFIG.values.map(v => new Color(SKILLS[v.skill].ink)), col = new Float32Array(N * 3), uu = new Float32Array(N), c = new Color();
+  for (let i = 0; i < N; i++) {
+    const u = i / (N - 1); uu[i] = u;
+    let k = 0; while (k < uk.length - 1 && u > uk[k + 1]) k++;
+    if (u <= uk[0]) c.copy(cols[0]); else if (u >= uk[uk.length - 1]) c.copy(cols[cols.length - 1]); else c.copy(cols[k]).lerp(cols[k + 1], (u - uk[k]) / (uk[k + 1] - uk[k]));
+    col.set([c.r, c.g, c.b], i * 3);
+  }
+  const g = new BufferGeometry().setFromPoints(P); g.setAttribute('color', new BufferAttribute(col, 3)); g.setAttribute('u', new BufferAttribute(uu, 1));
+  const pm = new ShaderMaterial({
+    uniforms: { prog: { value: 0 }, time: { value: 0 }, pr: { value: renderer.getPixelRatio() } },
+    vertexShader: `attribute float u;attribute vec3 color;uniform float prog,time,pr;varying vec3 vC;varying float vA;
+      void main(){vec4 mv=modelViewMatrix*vec4(position,1.);float on=step(u,prog);float head=exp(-pow((prog-u)*40.,2.));
+        vA=on*(.55+.25*sin(time*3.-u*60.))+head*1.6;vC=color;gl_PointSize=(2.2+head*7.)*pr*(240./-mv.z);gl_Position=projectionMatrix*mv;}`,
+    fragmentShader: `varying vec3 vC;varying float vA;void main(){float d=length(gl_PointCoord-.5);float a=smoothstep(.5,0.,d);gl_FragColor=vec4(mix(vC,vec3(1.),.25)*a*a*vA,1.);}`,
+    transparent: true, depthWrite: false, blending: AdditiveBlending
+  });
+  const pts = new Points(g, pm), lg = g.clone();
+  const line = new Line(lg, new LineBasicMaterial({ vertexColors: true, transparent: true, opacity: .55, blending: AdditiveBlending, depthWrite: false }));
+  lg.setDrawRange(0, 0);
+  const flash = new Sprite(new SpriteMaterial({ map: glowTexture('rgba(255,255,255,1)', 'rgba(252,160,27,.5)'), transparent: true, opacity: 0, depthWrite: false, blending: AdditiveBlending }));
+  flash.position.copy(P[N - 1]); flash.scale.setScalar(.01);
+  const group = new Group(); group.add(line, pts, flash); group.visible = false; scene.add(group);
+  route = { group, curve, pts, line, flash, uk, N, prog: route ? route.prog : 0, lit: uk.map(() => false) };
+}
+function lightPlanet(k) {
+  const u = planets[k].atmoMat.uniforms.k;
+  gsap.timeline().to(u, { value: 2.8, duration: .35, ease: 'power2.out' }).to(u, { value: 1.7, duration: 1.2, ease: 'power2.inOut' });
+  Sound.blip(620 + k * 140, .2, 'sine', .05);
+}
+function startRoute(instant) {
+  if (!route) { showFinale(); return; }
+  route.group.visible = true; route.lit = route.uk.map(() => false); bird.visible = false;
+  if (instant) { route.prog = 1; route.uk.forEach((u, k) => { route.lit[k] = true; planets[k].atmoMat.uniforms.k.value = 1.7; }); rocket.visible = false; showFinale(); return; }
+  rocket.visible = true; R.mode = 'route';
+  Sound.play('sfx-flyby', { vol: .8 });
+  gsap.fromTo(route, { prog: 0 }, { prog: 1, duration: 4.4, ease: 'power1.inOut', onComplete: () => {
+    rocket.visible = false;   // it streaks off the end of the route
+    gsap.timeline().set(route.flash.material, { opacity: 1 }).fromTo(route.flash.scale, { x: .01, y: .01 }, { x: 26, y: 26, duration: .5, ease: 'expo.out' }, 0)
+      .to(route.flash.material, { opacity: 0, duration: 1.2, ease: 'power2.out' }, .15);
+    showFinale();
+  } });
+}
+function updateRoute(t) {
+  if (!route || !route.group.visible) return;
+  route.pts.material.uniforms.prog.value = route.prog; route.pts.material.uniforms.time.value = t;
+  route.line.geometry.setDrawRange(0, Math.floor(route.prog * route.N));
+  route.uk.forEach((u, k) => { if (!route.lit[k] && route.prog >= u) { route.lit[k] = true; lightPlanet(k); } });
 }
 
 /* ---------- planet orbits ---------- */
@@ -1670,12 +1756,7 @@ function entryAngle(i) {
 }
 function legEnd(to) {
   if (to === 0) return { pos: hoverPos.clone(), tan: hoverFwd.clone() };
-  if (to === N_STOPS - 1) {
-    const portrait = isPortrait(), fr = frames[to];
-    const pos = frameLocal(fr, portrait ? 4 : 16, portrait ? 6 : 4, -62);
-    const tan = fr.look.clone().sub(fr.pos).normalize().add(new Vector3(0, .35, 0)).normalize();
-    return { pos, tan };
-  }
+  if (to === N_STOPS - 1) return { pos: route.curve.getPointAt(0), tan: route.curve.getTangentAt(0) };
   const ang = entryAngle(to), pos = new Vector3(), tan = new Vector3(); orbitAt(to, ang, pos, tan);
   return { pos, tan, ang };
 }
@@ -1748,11 +1829,10 @@ function updateLeg(dt, t) {
 function arrive() {
   const L = leg; leg = null; const i = L.to;
   if (i === 0) R.mode = 'hover';
-  else if (i === N_STOPS - 1) { R.mode = 'depart'; R.v = 20; R.fwd.copy(L.end.tan); }
+  else if (i === N_STOPS - 1) R.mode = 'route';
   else { R.mode = 'orbit'; R.orbitIdx = i; R.ang = L.end.ang; }
   state.fovPunch = 0; state.legWarp = 0;
-  bird.visible = i === 0 || i === N_STOPS - 1; bird.userData.u = .56; bird.userData.hist.length = 0;
-  if (i === N_STOPS - 1) { playConstellation(true); if (constel) R.fwd.copy(constel.center).sub(R.pos).normalize(); }
+  bird.visible = i === 0; bird.userData.u = .56; bird.userData.hist.length = 0;
   onArrive(i);
 }
 
@@ -1772,6 +1852,9 @@ function updateRocket(dt, t) {
   } else if (R.mode === 'orbit') {
     R.ang += OMEGA * dt; orbitAt(R.orbitIdx, R.ang, R.pos, R.fwd);
     R.bank += (-.35 - R.bank) * Math.min(1, dt * 2); R.target = .4;
+  } else if (R.mode === 'route') {
+    const u = Math.min(1, route.prog); route.curve.getPointAt(u, R.pos); route.curve.getTangentAt(u, R.fwd);
+    R.bank *= .95; R.target = 1.3;
   } else if (R.mode === 'depart') {
     R.v += 14 * dt; R.pos.addScaledVector(R.fwd, R.v * dt); R.target = 1.4; R.bank *= .97;
     if (R.pos.distanceTo(camera.position) > 1400) rocket.visible = false;
@@ -1839,6 +1922,7 @@ function frame(now) {
   updateBird(dt, t);
   updateSkillCues(dt, t);
   updateRings(dt);
+  updateRoute(t);
   updateEarth(dt, t);
   if (constel && constel.group.visible) { constel.sm.uniforms.prog.value = constel.prog; constel.sm.uniforms.time.value = t; constel.lg.setDrawRange(0, Math.floor(constel.prog * constel.n)); }
   finish.uniforms.time.value = t;
@@ -1930,7 +2014,7 @@ function onArrive(i) {
     tourCall = gsap.delayedCall(hold + (REDUCED || !renderer ? 1 : 0), () => go(i + 1));
   } else if (i === N_STOPS - 1) {
     letterbox(false);
-    showFinale(); showAllRings();
+    startRoute(REDUCED || !renderer);
   }
 }
 
@@ -1981,14 +2065,19 @@ function hideTagline() {
 }
 function showFinale() {
   const l = $('#launch'); gsap.killTweensOf(l); l.classList.add('show'); gsap.set(l, { opacity: 1 });
-  Sound.play('sfx-finale', { vol: .85, when: .3 }); Sound.vo('vo-finale', 1.4);
   document.body.classList.add('finale');
+  // the narrator answers the briefing's question, then the logo lands and names itself
+  const vc = Sound.dur('vo-closing') || 4.6;
+  Sound.vo('vo-closing', .3);
+  Sound.play('sfx-finale', { vol: .75, when: 1.9 });
+  Sound.vo('vo-finale', Math.max(2.8, vc + .8));
   if (REDUCED) return;
-  gsap.fromTo('#launch .k', { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 1, ease: 'expo.out', delay: .4 });
-  // the logo plate wipes in from the left, then the button follows
-  gsap.fromTo('.logo-plate', { scaleX: 0, transformOrigin: '0% 50%' }, { scaleX: 1, duration: 1.1, ease: 'expo.inOut', delay: .55 });
-  gsap.fromTo('.logo-plate img', { x: -30, opacity: 0 }, { x: 0, opacity: 1, duration: 1, stagger: .1, ease: 'expo.out', delay: 1.05 });
-  gsap.fromTo('#launch .actions', { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 1, ease: 'expo.out', delay: 1.4 });
+  gsap.fromTo('.fin-line .mask>span', { yPercent: 110 }, { yPercent: 0, duration: 1.1, stagger: .55, ease: 'expo.out', delay: .25 });
+  gsap.fromTo('.logo-plate', { scaleX: 0, transformOrigin: '0% 50%' }, { scaleX: 1, duration: 1, ease: 'expo.inOut', delay: 1.9 });
+  gsap.fromTo('.logo-plate img', { x: -30, opacity: 0 }, { x: 0, opacity: 1, duration: .9, stagger: .1, ease: 'expo.out', delay: 2.35 });
+  gsap.delayedCall(3.1, () => { const p = $('.logo-plate'); p.classList.remove('glint'); void p.offsetWidth; p.classList.add('glint'); });
+  gsap.fromTo('.fin-brand .k', { x: -12, opacity: 0 }, { x: 0, opacity: 1, duration: .9, ease: 'expo.out', delay: 2.6 });
+  gsap.fromTo('#launch .actions', { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 1, ease: 'expo.out', delay: 2.9 });
 }
 function hideFinale() {
   const l = $('#launch'); if (!l.classList.contains('show')) return;
@@ -2004,11 +2093,11 @@ function go(i) {
     current = i; state.p = i; setAccent(i);
     if (renderer) {
       if (i === 0) R.mode = 'hover';
-      else if (i === N_STOPS - 1) { const e = legEnd(i); R.pos.copy(e.pos); R.fwd.copy(e.tan); R.mode = 'depart'; R.v = 20; rocket.visible = true; }
+      else if (i === N_STOPS - 1) rocket.visible = false;
       else { R.mode = 'orbit'; R.orbitIdx = i; R.ang = entryAngle(i); rocket.visible = true; }
-      bird.visible = i === 0 || i === N_STOPS - 1;
+      bird.visible = i === 0;
     }
-    playConstellation(i === N_STOPS - 1);
+    playConstellation(false);
     onArrive(i); return;
   }
   if (!rocket.visible) { rocket.visible = true; const e = legEnd(current); R.pos.copy(e.pos); R.fwd.copy(e.tan); }
