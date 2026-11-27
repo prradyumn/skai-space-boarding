@@ -217,6 +217,32 @@ body.granted .bulk .lamps i.r{background:var(--ok);box-shadow:0 0 8px var(--ok);
 @media (max-width:760px){ .plate{height:50px;padding:0 22px;font-size:15px} }
 .skiplink:focus{position:fixed;left:16px;top:16px;width:auto;height:auto;clip:auto;z-index:100;background:var(--accent);color:var(--near-black);padding:10px 14px;font-family:var(--head);font-weight:700;font-size:12px}
 
+/* ---------- mission briefing: the hook between the scan and the door ---------- */
+#brief{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:62;width:min(780px,90vw);height:min(380px,64vh);padding:22px clamp(18px,3.5vw,34px);
+  background:rgba(5,11,34,.93);border:1px solid rgba(23,189,224,.32);opacity:0}
+#brief[hidden]{display:none}
+.bf-frame i{position:absolute;width:18px;height:18px;border:0 solid var(--cyan)}
+.bf-frame i:nth-child(1){left:-1px;top:-1px;border-width:2px 0 0 2px}.bf-frame i:nth-child(2){right:-1px;top:-1px;border-width:2px 2px 0 0}
+.bf-frame i:nth-child(3){left:-1px;bottom:-1px;border-width:0 0 2px 2px}.bf-frame i:nth-child(4){right:-1px;bottom:-1px;border-width:0 2px 2px 0}
+.bf-head{display:flex;justify-content:space-between;color:var(--cyan)}
+.bf-head span:last-child{color:var(--muted)}
+.bf-stage{position:absolute;left:clamp(18px,3.5vw,34px);right:clamp(18px,3.5vw,34px);top:58px;bottom:22px;display:flex;flex-direction:column;justify-content:center;opacity:0;visibility:hidden}
+.bf-k{color:var(--muted);margin-bottom:10px}
+.bf-year{font-family:var(--head);font-weight:700;font-size:clamp(72px,15vw,150px);line-height:1;color:var(--white);display:flex;align-items:center}
+.bf-year span{display:inline-block}
+.bf-cur{display:inline-block;width:.09em;height:.82em;margin-left:.08em;background:var(--cyan);box-shadow:0 0 14px var(--cyan)}
+.bf-jobs{list-style:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 24px;font-size:clamp(12px,1.7vw,16px);color:var(--ink)}
+.bf-jobs li{white-space:nowrap;overflow:hidden}
+.bf-jobs li.unk{color:var(--orange)}
+.bf-status{margin-top:16px;color:var(--muted)}.bf-status b{color:var(--orange);font-weight:700}
+.bf-line{font-family:var(--head);font-weight:700;font-size:clamp(22px,3.6vw,40px);line-height:1.15;color:var(--white);margin-top:18px}
+.bf-q{font-family:var(--head);font-weight:700;font-size:clamp(28px,5vw,58px);line-height:1.08;color:var(--white);text-align:center}
+.bf-q em{font-style:normal;color:var(--orange)}
+.bf-q .mask{display:block}
+.bf-route{width:100%;height:auto;overflow:visible}
+.bf-route text{font-family:var(--head);font-weight:600;font-size:13px;letter-spacing:.08em;fill:var(--muted)}
+@media (max-width:760px){ #brief{height:min(470px,72vh)} .bf-jobs{grid-template-columns:1fr;gap:6px} .bf-route{max-height:100%} .bf-route text{font-size:17px} }
+@media (max-height:500px) and (min-aspect-ratio:9/10){ #brief{height:86vh;top:52%} .bf-year{font-size:clamp(56px,22vh,110px)} .bf-jobs{gap:4px 20px} .bf-line{font-size:clamp(18px,6vh,30px);margin-top:10px} .bf-q{font-size:clamp(24px,8vh,44px)} .bf-route{max-height:58vh} }
 /* ---------- loading screen: SKAI plate + progress while the 3D engine starts ---------- */
 #boot{position:fixed;inset:0;z-index:300;display:grid;place-items:center;background:var(--bg);transition:opacity .6s var(--ease)}
 #boot.done{opacity:0;pointer-events:none}
@@ -231,6 +257,7 @@ body.granted .bulk .lamps i.r{background:var(--ok);box-shadow:0 0 8px var(--ok);
 @keyframes bootfail{to{opacity:0;visibility:hidden}}
 #boot{animation:bootfail .4s 12s forwards}
 @media (prefers-reduced-motion:reduce){ .door-face .sweep,#sound .bars i{animation:none} }
+@media (max-width:760px),(hover:none){ .door-face .sweep{display:none} }
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 </style>
 </head>
@@ -278,6 +305,15 @@ body.granted .bulk .lamps i.r{background:var(--ok);box-shadow:0 0 8px var(--ok);
     <li class="ok">› Clearance <b>Launch bay 03</b></li>
   </ul>
 </div>
+<section id="brief" aria-live="polite" hidden>
+  <div class="bf-frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="bf-head mono"><span>SKAI-1 · Mission briefing</span><span>Bay 03</span></div>
+  <div class="bf-stage" id="bfS1"><div class="mono bf-k">Destination</div><div class="bf-year" aria-label="2040"><span>2</span><span>0</span><span>4</span><span>0</span><i class="bf-cur" aria-hidden="true"></i></div></div>
+  <div class="bf-stage" id="bfS2"><div class="mono bf-k">Scanning job market</div><ul class="bf-jobs mono" id="bfJobs"></ul><div class="mono bf-status">Route: <b>unknown</b></div>
+    <p class="bf-line"><span class="mask"><span id="bfA">The jobs of tomorrow don’t have names yet.</span></span></p></div>
+  <div class="bf-stage" id="bfS3"><p class="bf-q"><span class="mask"><span>How do you prepare</span></span><span class="mask"><span>for a world</span></span><span class="mask"><span><em>no one can map?</em></span></span></p></div>
+  <div class="bf-stage" id="bfS4"><div class="mono bf-k">Plotting route</div><svg class="bf-route" id="bfRoute" viewBox="0 0 640 130" aria-hidden="true"></svg></div>
+</section>
 <button id="skip" class="mono">Skip intro →</button>
 
 <!-- HUD -->

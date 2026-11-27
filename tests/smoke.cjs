@@ -16,7 +16,7 @@ const path = require('path');
     await p.screenshot({ path: path.join(__dirname, `shots/${tag}-0-door.png`) });
     await p.click('#core');
     const seen = new Set(); const t0 = Date.now(); let done = false;
-    while (!done && Date.now() - t0 < 60000) {
+    while (!done && Date.now() - t0 < 150000) {
       const st = await p.evaluate(() => ({
         line: document.querySelector('#tag').classList.contains('show') ? document.querySelector('#tA').textContent : '',
         fin: document.querySelector('#launch').classList.contains('show'),

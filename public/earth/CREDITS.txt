@@ -1,0 +1,4 @@
+Earth maps (earth-day.jpg, earth-night.jpg, earth-clouds.jpg)
+Source imagery: NASA Visible Earth / Blue Marble and Earth at Night (public domain),
+as prepared in the three.js examples (examples/textures/planets, MIT licence).
+Recompressed for the web; the cloud map's transparency was converted to greyscale density.

@@ -5,7 +5,8 @@ import {
   Vector2, ACESFilmicToneMapping, SRGBColorSpace, Shape, ShapeGeometry,
   MeshStandardMaterial, AmbientLight, DirectionalLight, MathUtils, Line, LineSegments as LS2, LineLoop,
   LatheGeometry, CylinderGeometry, ConeGeometry, ExtrudeGeometry, TorusGeometry, PointLight,
-  WebGLCubeRenderTarget, CubeCamera, InstancedMesh, DodecahedronGeometry, BoxGeometry, Object3D, MeshBasicMaterial, PlaneGeometry, PMREMGenerator
+  WebGLCubeRenderTarget, CubeCamera, InstancedMesh, DodecahedronGeometry, BoxGeometry, Object3D, MeshBasicMaterial, PlaneGeometry, PMREMGenerator,
+  TextureLoader, NoColorSpace, MeshPhysicalMaterial
 } from 'three';
 import { Lensflare, LensflareElement } from 'three/examples/jsm/objects/Lensflare.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -18,6 +19,8 @@ import { gsap } from 'gsap';
 import { CONFIG, SKILLS } from './config.js';
 
 const KIOSK = location.hash === '#kiosk';
+// the offline single-file build embeds its media and lists it here (see scripts/build-single.mjs)
+const assetUrl = u => (window.SKAI_ASSETS && window.SKAI_ASSETS[u]) || u;
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -35,7 +38,44 @@ const Sound = {
       this.master = this.ctx.createGain();
       this.master.gain.value = this.on ? .55 : 0;
       this.master.connect(this.ctx.destination);
+      // buses: music ducks under the voice-over
+      this.bus = {};
+      [['music', .55], ['sfx', 1.1], ['vo', 1.7]].forEach(([k, v]) => { const g = this.ctx.createGain(); g.gain.value = v; g.connect(this.master); this.bus[k] = g; });
+      Object.keys(this.raw).forEach(k => this.decode(k));
     } catch (e) { this.ctx = null; }
+  },
+  /* ElevenLabs voice-over and sound effects (public/audio). Fetched in the background after boot,
+     decoded once audio is allowed (first tap). Anything missing falls back to the synth sounds. */
+  FILES: ['amb-space', 'sfx-scan', 'sfx-granted', 'sfx-door', 'sfx-warp', 'sfx-flyby', 'sfx-robotics', 'sfx-ai', 'sfx-coding', 'sfx-mechanics', 'sfx-finale',
+    'vo-granted', 'vo-brief-dest', 'vo-brief-1', 'vo-brief-2', 'vo-brief-route', 'sfx-scramble', 'sfx-route', 'vo-welcome', 'vo-1', 'vo-2', 'vo-3', 'vo-4', 'vo-finale'],
+  raw: {}, lib: {},
+  preload() {
+    this.FILES.forEach(k => fetch(assetUrl(`audio/${k}.mp3`)).then(r => r.ok ? r.arrayBuffer() : null).then(b => { if (!b) return; this.raw[k] = b; if (this.ctx) this.decode(k); }).catch(() => {}));
+  },
+  decode(k) {
+    const b = this.raw[k]; if (!b || this.lib[k]) return; delete this.raw[k];
+    this.ctx.decodeAudioData(b).then(buf => { this.lib[k] = buf; }).catch(() => {});
+  },
+  has(k) { return !!(this.ctx && this.lib[k]); },
+  dur(k) { return this.has(k) && this.on ? this.lib[k].duration : 0; },
+  play(k, { bus = 'sfx', vol = 1, when = 0, loop = false } = {}) {
+    if (!this.has(k)) return null;
+    const s = this.ctx.createBufferSource(), g = this.ctx.createGain(), t = this.ctx.currentTime + when;
+    s.buffer = this.lib[k]; s.loop = loop; g.gain.value = vol; s.connect(g).connect(this.bus[bus]); s.start(t);
+    if (bus === 'vo') {   // duck the music under the voice
+      (this.voSrcs = this.voSrcs || []).push(s);
+      const m = this.bus.music.gain; m.setTargetAtTime(.2, t, .12); m.setTargetAtTime(.55, t + s.buffer.duration, .5);
+    }
+    return s;
+  },
+  vo(k, when = 0) { return this.play(k, { bus: 'vo', when }); },
+  stopVO() { (this.voSrcs || []).forEach(s => { try { s.stop(); } catch (e) {} }); this.voSrcs = []; if (this.bus) this.bus.music.gain.setTargetAtTime(.55, this.ctx.currentTime, .2); },
+  startAmbient() {
+    if (this.amb || !this.has('amb-space')) return false;
+    const m = this.bus.music.gain, t = this.ctx.currentTime;
+    m.cancelScheduledValues(t); m.setValueAtTime(0, t); m.linearRampToValueAtTime(.55, t + 3);   // fade the music bus in
+    this.amb = this.play('amb-space', { bus: 'music', loop: true, vol: .9 });
+    return true;
   },
   set(on) { this.on = on; if (this.master) this.master.gain.setTargetAtTime(on ? .55 : 0, this.ctx.currentTime, .05); },
   blip(f = 880, d = .09, type = 'sine', v = .12, when = 0) {
@@ -299,7 +339,7 @@ function initLock() {
   // one tap: the fingerprint draws, scans by itself, and the door opens
   core.addEventListener('pointerdown', down);
   core.addEventListener('keydown', e => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) down(e); });
-  $('#skip').addEventListener('click', () => { Sound.init(); grant(true); });
+  $('#skip').addEventListener('click', () => { Sound.init(); if (briefTl) return finishBriefing(); grant(true); });
 }
 
 function toBiometric() {
@@ -313,6 +353,86 @@ function toBiometric() {
     .to('#core .fp path', { attr: { 'stroke-dashoffset': .8 }, duration: .9, stagger: .012, ease: 'power2.out' }, '<')
     .add(() => { $('#cap2').textContent = 'Verifying cadet'; }, '<')
     .add(startScan, '-=.5');
+}
+
+/* ---------- mission briefing: Destination 2040, route uncharted ----------
+   The hook between the scan and the door. Timed to the voice-over when it has loaded. */
+let briefTl = null, briefDone = null;
+const BRIEF_JOBS = ['Data analyst', 'App developer', 'Drone pilot', 'Cloud engineer', 'AI trainer', 'Robotics technician'];
+function runBriefing(done) {
+  briefDone = done;
+  const B = $('#brief'); B.hidden = false;
+  $('#bfJobs').innerHTML = BRIEF_JOBS.map(j => `<li>${j}</li>`).join('');
+  buildRouteArt();
+  const d = (k, f) => Sound.dur(k) || f;
+  const show = sel => tl.set(sel, { visibility: 'visible' }).fromTo(sel, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: .5, ease: 'expo.out' }, '<');
+  const hide = sel => tl.to(sel, { opacity: 0, y: -8, duration: .35, ease: 'power2.in' }).set(sel, { visibility: 'hidden' });
+  const tl = briefTl = gsap.timeline({ onComplete: () => finishBriefing() });
+  tl.to('.lock-title, .lock-caption, .readout', { opacity: 0, duration: .4 }, 0)
+    .to('#lock svg.rings', { opacity: .18, duration: .6 }, 0)
+    .to(B, { opacity: 1, duration: .5 }, .15)
+    .fromTo('.bf-frame i', { scale: 1.8, opacity: 0 }, { scale: 1, opacity: 1, duration: .7, ease: 'expo.out', stagger: .05 }, .2);
+  // 1 · destination: 2040, then the cursor blinks twice
+  const tY = Math.max(.8, d('vo-granted', 1.85) + .4);
+  tl.addLabel('s1', .45); show('#bfS1'); tl.set('.bf-year span', { opacity: 0 }, 's1');
+  tl.to('.bf-year span', { opacity: 1, duration: .05, stagger: .12, onStart: () => Sound.vo('vo-brief-dest') }, tY);
+  [0, .45].forEach(o => { tl.to('.bf-cur', { opacity: 0, duration: .01 }, tY + .7 + o).to('.bf-cur', { opacity: 1, duration: .01 }, tY + .92 + o).add(() => Sound.blip(1480, .05, 'sine', .07), tY + .7 + o); });
+  // 2 · today's job titles decode into the unknown while the narrator speaks
+  const t2 = tY + Math.max(d('vo-brief-dest', 2.2), 1.6) + .2;
+  hide('#bfS1'); tl.addLabel('s2', t2); tl.set('#bfS2', { visibility: 'visible' }, t2).fromTo('#bfS2', { opacity: 0 }, { opacity: 1, duration: .4 }, t2);
+  tl.add(() => { Sound.play('sfx-scramble', { vol: .8 }); scrambleJobs(); }, t2 + .35);
+  tl.fromTo('#bfA', { yPercent: 110 }, { yPercent: 0, duration: .9, ease: 'expo.out', onStart: () => Sound.vo('vo-brief-1') }, t2 + .8);
+  // 3 · the question
+  const t3 = t2 + .8 + d('vo-brief-1', 3) + .35;
+  tl.to('#bfS2', { opacity: 0, duration: .35 }, t3).set('#bfS2', { visibility: 'hidden' });
+  tl.set('#bfS3', { visibility: 'visible', opacity: 1 }, t3 + .35)
+    .fromTo('#bfS3 .mask>span', { yPercent: 110 }, { yPercent: 0, duration: 1, stagger: .14, ease: 'expo.out', onStart: () => Sound.vo('vo-brief-2') }, t3 + .4);
+  // 4 · plotting the route through the four skills, then the door
+  const t4 = t3 + .4 + d('vo-brief-2', 3.1) + .25;
+  tl.to('#bfS3', { opacity: 0, duration: .35 }, t4).set('#bfS3', { visibility: 'hidden' });
+  // SKAI Bot names the four skills; each node lights as it is named
+  const tr = d('vo-brief-route', 1.6);
+  tl.set('#bfS4', { visibility: 'visible', opacity: 1 }, t4 + .3)
+    .add(() => { Sound.play('sfx-route', { vol: .55 }); Sound.vo('vo-brief-route', .15); }, t4 + .3)
+    .fromTo('#bfPath', { attr: { 'stroke-dashoffset': 1 } }, { attr: { 'stroke-dashoffset': 0 }, duration: Math.max(1.1, tr - .2), ease: 'power1.inOut' }, t4 + .35)
+    .fromTo('#bfRoute .node', { opacity: 0 }, { opacity: 1, duration: .35, stagger: Math.max(.26, (tr - .9) / 4), ease: 'power2.out' }, t4 + .3 + Math.min(1.1, tr * .28))
+    .to(B, { opacity: 0, duration: .4, ease: 'power2.in' }, t4 + .45 + Math.max(1.6, tr + .2));
+}
+function finishBriefing() {
+  if (!briefTl) return;
+  const done = briefDone; briefTl.kill(); briefTl = null; briefDone = null;
+  Sound.stopVO();
+  const B = $('#brief'); gsap.to(B, { opacity: 0, duration: .25, onComplete: () => { B.hidden = true; } });
+  if (done) done();
+}
+// job titles flicker through glyphs and settle on UNKNOWN, one after another
+function scrambleJobs() {
+  const G = '▒░▓<>/#%01?XΣΛ', lis = $$('#bfJobs li');
+  lis.forEach((li, i) => {
+    const text = li.textContent.toUpperCase(), o = { p: 0 };
+    gsap.to(o, { p: 1, duration: .9, delay: i * .13, ease: 'none',
+      onUpdate: () => { li.textContent = [...text].map((ch, k) => ch === ' ' ? ' ' : (k / text.length < o.p ? G[(Math.random() * G.length) | 0] : ch)).join(''); },
+      onComplete: () => { li.textContent = 'UNKNOWN'; li.classList.add('unk'); } });
+  });
+}
+// a dotted route through four nodes, one per skill, in the skill colours
+// wide screens: a left-to-right route; narrow screens: top to bottom, labels beside the nodes (stay readable on phones)
+function buildRouteArt() {
+  const svg = $('#bfRoute'), tall = innerWidth < 600;
+  let xs, ys, d, label;
+  if (tall) {
+    xs = [70, 150, 70, 150]; ys = [40, 125, 210, 295];
+    d = 'M110 0 C 110 20 70 20 ' + xs[0] + ' ' + ys[0] + ys.slice(1).map((y, i) => ` S ${xs[i + 1]} ${y - 45} ${xs[i + 1]} ${y}`).join('');
+    label = (i, name) => `<text x="${xs[i] + (i % 2 ? -34 : 34)}" y="${ys[i] + 6}" text-anchor="${i % 2 ? 'end' : 'start'}">${name}</text>`;
+    svg.setAttribute('viewBox', '0 0 300 330');
+  } else {
+    xs = [70, 237, 403, 570]; ys = [78, 38, 82, 42];
+    d = 'M10 100 C 40 100 50 ' + ys[0] + ' ' + xs[0] + ' ' + ys[0] + xs.slice(1).map((x, i) => ` S ${x - 70} ${ys[i + 1]} ${x} ${ys[i + 1]}`).join('');
+    label = (i, name) => `<text x="${xs[i]}" y="${ys[i] < 60 ? ys[i] - 32 : ys[i] + 44}" text-anchor="middle">${name}</text>`;
+    svg.setAttribute('viewBox', '0 0 640 130');
+  }
+  svg.innerHTML = `<path id="bfPath" d="${d}" fill="none" stroke="#B8D8F4" stroke-width="2" stroke-dasharray="1" pathLength="1" stroke-dashoffset="1" opacity=".9"/>` +
+    CONFIG.values.map((v, i) => { const sk = SKILLS[v.skill]; return `<g class="node"><circle cx="${xs[i]}" cy="${ys[i]}" r="13" fill="${sk.color}" stroke="#fff" stroke-width="2"/><circle cx="${xs[i]}" cy="${ys[i]}" r="22" fill="none" stroke="${sk.ink}" stroke-opacity=".5"/>${label(i, sk.name.toUpperCase())}</g>`; }).join('');
 }
 
 function setScan(v) {
@@ -331,7 +451,7 @@ function setScan(v) {
 
 function startScan() {
   lockState.phase = 'scanning';
-  Sound.scanStart();
+  if (!Sound.play('sfx-scan', { vol: .8 })) Sound.scanStart();
   $('#cap1').textContent = 'Scanning';
   gsap.to('#core .scanline', { opacity: 1, duration: .2 });
   gsap.fromTo('#core .scanline', { top: '18%' }, { top: '82%', duration: .7, repeat: -1, yoyo: true, ease: 'sine.inOut', id: 'scanY' });
@@ -356,8 +476,9 @@ function grant(skipped) {
   $('#cap1').textContent = 'Access granted';
   $('#cap2').textContent = 'Welcome aboard, cadet';
   gsap.to('#core .scanline', { opacity: 0, duration: .2 });
-  Sound.blip(784, .18, 'sine', .14); Sound.blip(1175, .32, 'sine', .12, .12);
-  gsap.delayedCall(skipped ? .1 : .5, openDoor);
+  if (!Sound.play('sfx-granted')) { Sound.blip(784, .18, 'sine', .14); Sound.blip(1175, .32, 'sine', .12, .12); }
+  if (!skipped) Sound.vo('vo-granted', .25);
+  if (skipped) gsap.delayedCall(.1, openDoor); else gsap.delayedCall(.5, () => runBriefing(openDoor));
 }
 
 /* =====================================================================
@@ -431,7 +552,7 @@ function initThree() {
   scene.add(camera);
   clock = { last: performance.now(), t: 0 };
 
-  buildStars(); buildNebula(); buildDust(); buildPlanets(); buildSkillCues(); buildRings(); buildWarp(); buildBird(); buildRocket(); buildExhaust();
+  buildStars(); buildNebula(); buildDust(); buildPlanets(); buildSkillCues(); buildRings(); buildEarth(); buildWarp(); buildBird(); buildRocket(); buildExhaust();
   const amb = new AmbientLight(0x6b86c9, .55); scene.add(amb);
   const dl = new DirectionalLight(0xffffff, 2.2); dl.position.copy(LIGHT).normalize(); scene.add(dl);
   const fill = new DirectionalLight(0x9db6ff, 1.1); fill.position.set(.6, -.2, .8); scene.add(fill);
@@ -763,6 +884,7 @@ function buildWarp() {
 }
 function updateWarp(dt) {
   const w = Math.max(state.warp, state.legWarp); warp.visible = w > .01; if (!warp.visible) return;   // legWarp: faint streaks while flying between planets
+  warp.geometry.setDrawRange(0, state.warp >= state.legWarp ? Infinity : 220 * 2);   // flights use about a third of the lines
   warp.material.opacity = Math.min(1, w * 1.2) * .85;
   const pos = warp.geometry.attributes.position.array, seeds = warp.userData.seeds, speed = 40 + w * 900, len = 2 + w * 70;
   seeds.forEach((s, i) => {
@@ -997,7 +1119,7 @@ function cueTerminal(sk) {
     tex.needsUpdate = true;
   };
   draw(0);
-  const panel = new Mesh(new PlaneGeometry(1.52, 1), new MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: DoubleSide, toneMapped: false }));
+  const panel = new Mesh(new PlaneGeometry(1.52, 1), new MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, toneMapped: false }));   // front side only: no mirrored text from behind
   panel.rotation.y = -.32; panel.renderOrder = 3; g.add(panel);
   const glyph = (s, col, size) => {
     const c = document.createElement('canvas'); c.width = 256; c.height = 128; const y = c.getContext('2d');
@@ -1146,104 +1268,211 @@ function showAllRings() {
 }
 function updateRings(dt) { rings.forEach(R => { if (R && R.mesh.visible) R.mesh.rotation.y += dt * .07; }); }
 
+/* ---------- Earth: the departure point, low in the launch shot ----------
+   Day, night-lights and cloud maps (NASA-derived, public domain; public/earth). A dawn line crosses the
+   visible face: the far horizon is lit with a blue rim, the near side is night with city lights, and
+   India is turned toward the lens. Visible at the start and during the launch flight only. */
+let earth = null;
+// position in the start shot's camera space (x right, y up, -z forward), radius in world units
+const EARTH = { r: 58, land: [20, -66, -100], port: [10, -74, -110], maps: ['earth/earth-day.jpg', 'earth/earth-night.jpg', 'earth/earth-clouds.jpg'] };
+function buildEarth() {
+  const mat = new ShaderMaterial({
+    uniforms: { day: { value: null }, night: { value: null }, clouds: { value: null }, sunDir: { value: new Vector3(0, 1, 0) }, time: { value: 0 }, op: { value: 0 } },
+    vertexShader: `varying vec2 vUv;varying vec3 vN;varying vec3 vW;void main(){vUv=uv;vec4 wp=modelMatrix*vec4(position,1.);vW=wp.xyz;vN=normalize(mat3(modelMatrix)*normal);gl_Position=projectionMatrix*viewMatrix*wp;}`,
+    fragmentShader: `uniform sampler2D day,night,clouds;uniform vec3 sunDir;uniform float time,op;varying vec2 vUv;varying vec3 vN;varying vec3 vW;
+      void main(){vec3 n=normalize(vN);vec3 v=normalize(cameraPosition-vW);float d=dot(n,sunDir);float lit=smoothstep(-.08,.28,d);
+        vec3 dc=texture2D(day,vUv).rgb;vec3 nc=texture2D(night,vUv).rgb;float cl=texture2D(clouds,vUv+vec2(time*.0012,0.)).r;
+        vec3 col=dc*(.03+1.35*max(d,0.));
+        col=mix(col,vec3(1.)*(.04+1.15*max(d,0.)),cl*.8);
+        vec3 lights=pow(nc,vec3(1.7))*vec3(1.,.8,.5)*3.2*(1.-lit)*(1.-cl*.75);
+        col=col*mix(.12,1.,lit)+lights;
+        float rim=pow(1.-max(dot(n,v),0.),2.6);
+        col+=mix(vec3(1.,.5,.2),vec3(.35,.65,1.),smoothstep(-.05,.35,d))*rim*smoothstep(-.35,.25,d)*1.3;
+        gl_FragColor=vec4(col*op,1.);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`
+  });
+  const atmoMat = new ShaderMaterial({
+    uniforms: { sunDir: mat.uniforms.sunDir, op: mat.uniforms.op },
+    vertexShader: `varying vec3 vN;varying vec3 vWN;void main(){vN=normalize(normalMatrix*normal);vWN=normalize(mat3(modelMatrix)*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+    fragmentShader: `uniform vec3 sunDir;uniform float op;varying vec3 vN;varying vec3 vWN;
+      void main(){float z=-vN.z;float i=smoothstep(0.,.5,z)*smoothstep(1.,.42,z);i=pow(i,2.);float s=smoothstep(-.4,.5,dot(vWN,sunDir));
+        gl_FragColor=vec4(mix(vec3(1.,.45,.15),vec3(.3,.62,1.),s)*i*(.12+.88*s)*op*1.25,1.);
+        #include <colorspace_fragment>
+      }`,
+    side: BackSide, transparent: true, depthWrite: false, blending: AdditiveBlending
+  });
+  const g = new Group(), seg = innerWidth < 760 ? 72 : 112;
+  g.add(new Mesh(new SphereGeometry(1, seg, seg * .66 | 0), mat), new Mesh(new SphereGeometry(1.035, 64, 40), atmoMat));
+  g.visible = false; scene.add(g);
+  earth = { g, mat, op: 0, ready: false };
+  const loader = new TextureLoader(); let n = 0;
+  ['day', 'night', 'clouds'].forEach((k, i) => loader.load(assetUrl(EARTH.maps[i]), t => {
+    t.colorSpace = k === 'clouds' ? NoColorSpace : SRGBColorSpace; t.anisotropy = 4; mat.uniforms[k].value = t;
+    if (++n === 3) earth.ready = true;
+  }, undefined, () => {}));   // if the maps can't load, Earth simply stays hidden
+}
+// lon/lat (degrees) to a direction on three's SphereGeometry, whose u runs from longitude -180
+const lonLat = (lon, lat) => { const p = (lon + 180) / 360 * Math.PI * 2, t = lat * Math.PI / 180; return new Vector3(-Math.cos(p) * Math.cos(t), Math.sin(t), Math.sin(p) * Math.cos(t)); };
+function placeEarth() {
+  if (!earth || !frames[0]) return;
+  const portrait = isPortrait(), L = portrait ? EARTH.port : EARTH.land, fr = frames[0];
+  frameLocal(fr, L[0], L[1], L[2], earth.g.position); earth.g.scale.setScalar(EARTH.r);
+  const q = tmpCam.quaternion;   // frameLocal left tmpCam looking down the start shot
+  // the sun sits low ahead of the lens, so the dawn line crosses the visible face
+  earth.mat.uniforms.sunDir.value.set(.25, -.06, -1).applyQuaternion(q).normalize();
+  // India on the night side, just short of the dawn line, facing the lens
+  earth.g.quaternion.setFromUnitVectors(lonLat(78, 22), new Vector3(-.08, .77, .26).normalize().applyQuaternion(q));
+}
+function updateEarth(dt, t) {
+  if (!earth) return;
+  const want = earth.ready && (current <= 0 || !!(leg && leg.from === 0 && leg.to === 1)) ? 1 : 0;
+  earth.op += (want - earth.op) * Math.min(1, dt * (want ? 1.6 : 2.6));
+  earth.mat.uniforms.op.value = earth.op; earth.mat.uniforms.time.value = t;
+  earth.g.visible = earth.op > .01;
+}
+
 /* ---------- rocket ---------- */
 const UP = new Vector3(0, 1, 0);
 const RS = 1.35;
 let rocket, flame, flameMat, nozzleLight, EX, dust;
 const R = { pos: new Vector3(), fwd: new Vector3(0, 0, -1), vel: new Vector3(), prev: new Vector3(), throttle: 0, target: .3, bank: 0, mode: 'intro', ang: 0, orbitIdx: 0, v: 0, nozzle: new Vector3(), prevNozzle: new Vector3(), started: false };
 
-function rocketTexture(c) {
-  c = c || document.createElement('canvas'); c.width = 1024; c.height = 1024; const x = c.getContext('2d');
-  const L = 3.35, Y = y => 1024 - y / L * 1024, rnd = mulberry(9);
-  const g = x.createLinearGradient(0, 1024, 0, 0); g.addColorStop(0, '#b9c0cf'); g.addColorStop(.22, '#eceff6'); g.addColorStop(1, '#f7f9fd');
-  x.fillStyle = g; x.fillRect(0, 0, 1024, 1024);
-  for (let i = 0; i < 90; i++) { x.fillStyle = `rgba(30,40,62,${(rnd() * .06).toFixed(3)})`; x.fillRect(rnd() * 1024, Y(.95), 2 + rnd() * 7, Y(0) - Y(.95) * rnd()); }
-  x.fillStyle = '#091C56'; x.fillRect(0, Y(.62), 1024, Y(.3) - Y(.62));
-  x.fillStyle = '#FCA01B'; x.fillRect(0, Y(2.1), 1024, Y(1.98) - Y(2.1));
-  x.fillStyle = '#17BDE0'; x.fillRect(0, Y(1.94), 1024, 5);
-  x.fillStyle = '#F5A524'; x.fillRect(0, Y(.3) - 5, 1024, 5);
-  const ng = x.createLinearGradient(0, Y(3.35), 0, Y(2.95)); ng.addColorStop(0, '#0b1430'); ng.addColorStop(1, '#1a2850');
-  x.fillStyle = ng; x.fillRect(0, 0, 1024, Y(2.95));
-  x.strokeStyle = 'rgba(28,38,66,.5)'; x.lineWidth = 2;
-  [.3, .62, .95, 1.3, 1.62, 1.98, 2.1, 2.45, 2.75, 2.95].forEach(h => { x.beginPath(); x.moveTo(0, Y(h)); x.lineTo(1024, Y(h)); x.stroke(); });
-  x.strokeStyle = 'rgba(28,38,66,.32)'; x.lineWidth = 1.5;
-  for (let k = 0; k < 8; k++) { const u = k / 8 * 1024 + 64; x.beginPath(); x.moveTo(u, Y(.62)); x.lineTo(u, Y(1.98)); x.stroke(); x.beginPath(); x.moveTo(u + 32, Y(2.1)); x.lineTo(u + 32, Y(2.95)); x.stroke(); }
-  x.fillStyle = 'rgba(28,38,66,.55)';
-  [.95, 1.3, 1.62, 2.45].forEach(h => { for (let u = 8; u < 1024; u += 16) { x.beginPath(); x.arc(u, Y(h) - 6, 1.7, 0, 7); x.fill(); } });
-  // access hatches + warning tags
-  [[128, 1.42], [640, 1.42]].forEach(([u, h]) => { x.strokeStyle = 'rgba(28,38,66,.55)'; x.lineWidth = 2; x.strokeRect(u - 30, Y(h) - 24, 60, 48); x.fillStyle = '#FCA01B'; x.fillRect(u - 26, Y(h) + 14, 18, 6); });
+// hull livery, drawn to a canvas (u = around the hull, v = along it, nose at the top)
+function rocketTexture(c, S = 2048) {
+  c = c || document.createElement('canvas'); c.width = S; c.height = S; const x = c.getContext('2d');
+  const L = 3.35, Y = y => S - y / L * S, k = S / 1024, rnd = mulberry(9);
+  const g = x.createLinearGradient(0, S, 0, 0); g.addColorStop(0, '#c3c9d6'); g.addColorStop(.2, '#eef1f7'); g.addColorStop(1, '#fbfcfe');
+  x.fillStyle = g; x.fillRect(0, 0, S, S);
+  // soft weathering near the engine
+  for (let i = 0; i < 140; i++) { x.fillStyle = `rgba(30,40,62,${(rnd() * .05).toFixed(3)})`; x.fillRect(rnd() * S, Y(.95), (2 + rnd() * 9) * k, (Y(0) - Y(.95)) * rnd()); }
+  x.fillStyle = '#091C56'; x.fillRect(0, Y(.62), S, Y(.3) - Y(.62));                  // engine section
+  for (let u = -S; u < S * 2; u += 34 * k) { x.fillStyle = '#FCA01B'; x.beginPath(); x.moveTo(u, Y(.3)); x.lineTo(u + 16 * k, Y(.3)); x.lineTo(u + 30 * k, Y(.22)); x.lineTo(u + 14 * k, Y(.22)); x.fill(); }   // hazard band
+  x.fillStyle = '#091C56'; x.fillRect(0, Y(.22), S, Y(0) - Y(.22));
+  x.fillStyle = '#FCA01B'; x.fillRect(0, Y(2.1), S, Y(1.98) - Y(2.1));                  // orange collar
+  x.fillStyle = '#17BDE0'; x.fillRect(0, Y(1.95), S, 5 * k);
+  x.fillStyle = '#F5A524'; x.fillRect(0, Y(.62) - 4 * k, S, 4 * k);
+  const ng = x.createLinearGradient(0, Y(3.35), 0, Y(2.95)); ng.addColorStop(0, '#0A2D94'); ng.addColorStop(1, '#17355F');
+  x.fillStyle = ng; x.fillRect(0, 0, S, Y(2.95));                                       // nose cone
+  // panel seams and rivet rows
+  x.strokeStyle = 'rgba(28,38,66,.45)'; x.lineWidth = 2 * k;
+  [.62, .95, 1.3, 1.62, 1.98, 2.1, 2.45, 2.75, 2.95].forEach(h => { x.beginPath(); x.moveTo(0, Y(h)); x.lineTo(S, Y(h)); x.stroke(); });
+  x.strokeStyle = 'rgba(28,38,66,.28)'; x.lineWidth = 1.4 * k;
+  for (let q = 0; q < 12; q++) { const u = q / 12 * S + 40 * k; x.beginPath(); x.moveTo(u, Y(.62)); x.lineTo(u, Y(1.98)); x.stroke(); x.beginPath(); x.moveTo(u + 42 * k, Y(2.1)); x.lineTo(u + 42 * k, Y(2.95)); x.stroke(); }
+  x.fillStyle = 'rgba(28,38,66,.5)';
+  [.95, 1.3, 1.62, 2.45, 2.75].forEach(h => { for (let u = 6 * k; u < S; u += 13 * k) { x.beginPath(); x.arc(u, Y(h) - 5 * k, 1.5 * k, 0, 7); x.fill(); } });
+  // access hatches with warning tags
+  [[150, 1.42], [662, 1.42], [400, 2.3], [912, 2.3]].forEach(([u, h]) => {
+    u *= k; x.strokeStyle = 'rgba(28,38,66,.5)'; x.lineWidth = 2 * k; x.strokeRect(u - 26 * k, Y(h) - 20 * k, 52 * k, 40 * k);
+    x.fillStyle = '#FCA01B'; x.fillRect(u - 22 * k, Y(h) + 12 * k, 16 * k, 5 * k);
+  });
+  // lettering, on both sides of the hull
   [256, 768].forEach((u, side) => {
-    x.save(); x.translate(u, side ? Y(1.75) : Y(.7)); x.rotate(side ? Math.PI / 2 : -Math.PI / 2);
-    x.fillStyle = '#0A2D94'; x.font = '700 98px "Chakra Petch", Arial, sans-serif'; x.textBaseline = 'middle'; x.fillText('SKAI', 0, 0);
-    x.font = '600 24px "Chakra Petch", Arial, sans-serif'; x.fillStyle = '#FCA01B'; x.fillText('SK-1 · LAUNCHPAD', 6, 58);
+    x.save(); x.translate(u * k, side ? Y(1.78) : Y(.72)); x.rotate(side ? Math.PI / 2 : -Math.PI / 2);
+    x.fillStyle = '#0A2D94'; x.font = `700 ${100 * k}px "Chakra Petch", Arial, sans-serif`; x.textBaseline = 'middle'; x.fillText('SKAI', 0, 0);
+    x.font = `600 ${24 * k}px "Chakra Petch", Arial, sans-serif`; x.fillStyle = '#FCA01B'; x.fillText('SK-1 · LAUNCHPAD', 6 * k, 60 * k);
+    x.font = `600 ${17 * k}px "Chakra Petch", Arial, sans-serif`; x.fillStyle = '#17355F'; x.fillText('BY CONVEGENIUS', 6 * k, -56 * k);
     x.restore();
   });
   return c;
+}
+// bump map: seams pressed in, rivets raised (same layout as the livery)
+function rocketBump(S) {
+  const c = document.createElement('canvas'); c.width = S; c.height = S; const x = c.getContext('2d');
+  const L = 3.35, Y = y => S - y / L * S, k = S / 1024;
+  x.fillStyle = '#808080'; x.fillRect(0, 0, S, S);
+  x.strokeStyle = '#3a3a3a'; x.lineWidth = 3 * k;
+  [.3, .62, .95, 1.3, 1.62, 1.98, 2.1, 2.45, 2.75, 2.95].forEach(h => { x.beginPath(); x.moveTo(0, Y(h)); x.lineTo(S, Y(h)); x.stroke(); });
+  x.lineWidth = 2 * k;
+  for (let q = 0; q < 12; q++) { const u = q / 12 * S + 40 * k; x.beginPath(); x.moveTo(u, Y(.62)); x.lineTo(u, Y(1.98)); x.stroke(); x.beginPath(); x.moveTo(u + 42 * k, Y(2.1)); x.lineTo(u + 42 * k, Y(2.95)); x.stroke(); }
+  [[150, 1.42], [662, 1.42], [400, 2.3], [912, 2.3]].forEach(([u, h]) => { u *= k; x.strokeRect(u - 26 * k, Y(h) - 20 * k, 52 * k, 40 * k); });
+  x.fillStyle = '#c8c8c8';
+  [.95, 1.3, 1.62, 2.45, 2.75].forEach(h => { for (let u = 6 * k; u < S; u += 13 * k) { x.beginPath(); x.arc(u, Y(h) - 5 * k, 1.6 * k, 0, 7); x.fill(); } });
+  const t = new CanvasTexture(c); t.colorSpace = NoColorSpace; t.anisotropy = 4; return t;
 }
 
 let rocketTex = null, rocketCanvas = null;
 function buildRocket() {
   rocket = new Group();
   const inner = new Group(); inner.rotation.x = Math.PI / 2; inner.position.z = -1.6; rocket.add(inner);
-  const canvas = rocketCanvas = rocketTexture();
-  rocketTex = new CanvasTexture(canvas); rocketTex.colorSpace = SRGBColorSpace; rocketTex.anisotropy = 4;
-  if (document.fonts) document.fonts.ready.then(() => { rocketTexture(canvas); rocketTex.needsUpdate = true; });
-  const skin = new MeshStandardMaterial({ map: rocketTex, metalness: .18, roughness: .4 });
-  const white = new MeshStandardMaterial({ color: 0xeef1f8, metalness: .15, roughness: .42 });
-  const navy = new MeshStandardMaterial({ color: 0x0A2D94, metalness: .35, roughness: .4, emissive: 0x091C56, emissiveIntensity: .3 });
-  const orange = new MeshStandardMaterial({ color: 0xFCA01B, emissive: 0xB96D00, emissiveIntensity: .35, metalness: .1, roughness: .5 });
-  const metal = new MeshStandardMaterial({ color: 0x4a5570, metalness: .75, roughness: .3, side: DoubleSide });
+  const S = innerWidth < 760 ? 1024 : 2048;
+  const canvas = rocketCanvas = rocketTexture(null, S);
+  rocketTex = new CanvasTexture(canvas); rocketTex.colorSpace = SRGBColorSpace; rocketTex.anisotropy = 8;
+  if (document.fonts) document.fonts.ready.then(() => { rocketTexture(canvas, S); rocketTex.needsUpdate = true; });
+  const bump = rocketBump(S);
+  // gloss paint with a clear coat; metals reflect the sky (scene.environment)
+  const skin = new MeshPhysicalMaterial({ map: rocketTex, bumpMap: bump, bumpScale: .9, metalness: .2, roughness: .38, clearcoat: .7, clearcoatRoughness: .18 });
+  const white = new MeshPhysicalMaterial({ color: 0xf1f4fa, metalness: .2, roughness: .38, clearcoat: .7, clearcoatRoughness: .18 });
+  const navy = new MeshPhysicalMaterial({ color: 0x0A2D94, metalness: .3, roughness: .32, clearcoat: .8, clearcoatRoughness: .15, emissive: 0x091C56, emissiveIntensity: .25 });
+  const orange = new MeshPhysicalMaterial({ color: 0xFCA01B, emissive: 0xB96D00, emissiveIntensity: .3, metalness: .15, roughness: .4, clearcoat: .6 });
+  const chrome = new MeshStandardMaterial({ color: 0xdfe6f2, metalness: 1, roughness: .16 });
+  const metal = new MeshStandardMaterial({ color: 0x5a6582, metalness: .9, roughness: .28, side: DoubleSide });
   const L = 3.35, rad = y => y < .14 ? .32 + .09 * (y / .14) : y < .5 ? .41 + .03 * ((y - .14) / .36) : y < 1.9 ? .44 : .44 * Math.pow(Math.max(0, Math.cos((y - 1.9) / 1.45 * Math.PI / 2)), .8);
-  const prof = []; for (let j = 0; j <= 64; j++) { const y = j / 64 * L; prof.push(new Vector2(Math.max(rad(y), j === 64 ? 0 : .002), y)); }
-  inner.add(new Mesh(new LatheGeometry(prof, 56), skin));
-  // portholes
-  const glass = new MeshStandardMaterial({ color: 0x0b1d45, emissive: 0x8cd8ff, emissiveIntensity: 1.1, roughness: .15, metalness: .2 });
+  const prof = []; for (let j = 0; j <= 128; j++) { const y = j / 128 * (L - .04); prof.push(new Vector2(Math.max(rad(y), j === 128 ? 0 : .002), y)); }
+  inner.add(new Mesh(new LatheGeometry(prof, 96), skin));
+  // chrome nose tip and interstage rings
+  const tip = new Mesh(new ConeGeometry(.045, .12, 24), chrome); tip.position.y = L - .03; inner.add(tip);
+  [.62, 1.98, 2.95].forEach(y => { const ring = new Mesh(new TorusGeometry(rad(y) + .004, .011, 8, 96), chrome); ring.rotation.x = Math.PI / 2; ring.position.y = y; inner.add(ring); });
+  // portholes: chrome rims, warm cabin glow
+  const glass = new MeshPhysicalMaterial({ color: 0x0b1d45, emissive: 0xffc98a, emissiveIntensity: .55, roughness: .05, metalness: .1, clearcoat: 1 });
   [2.62, 2.4, 2.2].forEach((y, k) => {
     const r0 = rad(y) - .01, sz = k ? .075 : .1;
-    const w = new Mesh(new CylinderGeometry(sz, sz, .04, 24), glass); w.rotation.z = Math.PI / 2; w.position.set(r0, y, 0); inner.add(w);
-    const rim = new Mesh(new TorusGeometry(sz + .018, .016, 8, 24), navy); rim.rotation.y = Math.PI / 2; rim.position.set(r0 + .012, y, 0); inner.add(rim);
+    const w = new Mesh(new CylinderGeometry(sz, sz, .04, 32), glass); w.rotation.z = Math.PI / 2; w.position.set(r0, y, 0); inner.add(w);
+    const rim = new Mesh(new TorusGeometry(sz + .016, .014, 10, 32), chrome); rim.rotation.y = Math.PI / 2; rim.position.set(r0 + .012, y, 0); inner.add(rim);
   });
-  // fins
+  // swept fins with a rounded edge and an orange leading edge
   const fs = new Shape(); fs.moveTo(.4, 1.05); fs.lineTo(.4, .08); fs.lineTo(1.02, -.3); fs.lineTo(1.04, .06); fs.quadraticCurveTo(.7, .55, .4, 1.05);
-  const fg = new ExtrudeGeometry(fs, { depth: .06, bevelEnabled: true, bevelThickness: .012, bevelSize: .012, bevelSegments: 1 }); fg.translate(0, 0, -.03);
+  const fg = new ExtrudeGeometry(fs, { depth: .05, bevelEnabled: true, bevelThickness: .018, bevelSize: .016, bevelSegments: 4, curveSegments: 16 }); fg.translate(0, 0, -.025);
+  const edge = new Shape(); edge.moveTo(.4, 1.05); edge.quadraticCurveTo(.7, .55, 1.04, .06); edge.lineTo(1.0, .02); edge.quadraticCurveTo(.66, .5, .36, 1.0); edge.lineTo(.4, 1.05);
+  const eg = new ExtrudeGeometry(edge, { depth: .08, bevelEnabled: false, curveSegments: 16 }); eg.translate(0, 0, -.04);
   const finTips = [];
   for (let k = 0; k < 4; k++) {
     const th = k * Math.PI / 2 + Math.PI / 4, f = new Mesh(fg, navy); f.rotation.y = th; inner.add(f);
-    const stripe = new Mesh(new BoxGeometry(.5, .03, .075), orange); stripe.position.set(.75, -.08, 0); stripe.rotation.z = -.55; f.add(stripe);
+    f.add(new Mesh(eg, orange));
     finTips.push(new Vector3(1.05 * Math.cos(th), -.12, -1.05 * Math.sin(th)));
   }
-  // RCS thruster pods
-  for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + Math.PI / 4, pod = new Mesh(new BoxGeometry(.09, .16, .09), navy); pod.position.set(Math.cos(a) * .37, 2.78, -Math.sin(a) * .37); pod.rotation.y = a; inner.add(pod); }
-  // antenna
-  const ant = new Mesh(new CylinderGeometry(.008, .008, .55, 6), metal); ant.position.set(-.18, 2.6, .3); ant.rotation.x = -.35; inner.add(ant);
-  // main bell + inner heat glow
-  const bell = [new Vector2(.2, .02), new Vector2(.22, -.08), new Vector2(.28, -.25), new Vector2(.35, -.42), new Vector2(.37, -.45)];
-  inner.add(new Mesh(new LatheGeometry(bell, 36), metal));
+  // RCS thruster quads near the nose
+  for (let k = 0; k < 4; k++) {
+    const a = k * Math.PI / 2 + Math.PI / 4, pod = new Group(); pod.position.set(Math.cos(a) * .37, 2.78, -Math.sin(a) * .37); pod.rotation.y = a; inner.add(pod);
+    pod.add(new Mesh(new BoxGeometry(.09, .15, .09), navy));
+    [-1, 1].forEach(s => { const n = new Mesh(new ConeGeometry(.016, .04, 10, 1, true), metal); n.rotation.z = s * Math.PI / 2; n.position.set(s * .06, 0, 0); pod.add(n); });
+  }
+  const ant = new Mesh(new CylinderGeometry(.007, .007, .55, 6), chrome); ant.position.set(-.18, 2.6, .3); ant.rotation.x = -.35; inner.add(ant);
+  // main engine: cooled bell with a glowing hot rim, and four small steering engines around it
+  const bell = []; for (let j = 0; j <= 24; j++) { const t = j / 24, yb = .02 - t * .47; bell.push(new Vector2(.2 + .17 * Math.pow(t, 1.6), yb)); }
+  inner.add(new Mesh(new LatheGeometry(bell, 64), metal));
+  const hotRim = new Mesh(new TorusGeometry(.368, .012, 8, 64), new MeshBasicMaterial({ color: 0xff8a3a, transparent: true, opacity: .8, blending: AdditiveBlending, depthWrite: false }));
+  hotRim.rotation.x = Math.PI / 2; hotRim.position.y = -.448; inner.add(hotRim);
   const heat = new MeshBasicMaterial({ color: 0xff7a2a, side: BackSide, transparent: true, opacity: .5, blending: AdditiveBlending, depthWrite: false });
-  const hb = new Mesh(new LatheGeometry(bell.map(v => new Vector2(v.x * .96, v.y)), 36), heat); inner.add(hb);
+  inner.add(new Mesh(new LatheGeometry(bell.map(v => new Vector2(v.x * .96, v.y)), 64), heat));
+  const vern = new LatheGeometry([new Vector2(.035, 0), new Vector2(.045, -.05), new Vector2(.07, -.13)], 20);
+  for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2, m = new Mesh(vern, metal); m.position.set(Math.cos(a) * .3, .06, -Math.sin(a) * .3); inner.add(m); }
   // side boosters (top and bottom in flight so the SKAI lettering stays visible)
-  const bflames = [];
   [1, -1].forEach(side => {
-    const bp = []; for (let j = 0; j <= 30; j++) { const y = j / 30 * 2.55; const r = y < 2.05 ? .19 : .19 * Math.pow(Math.max(0, Math.cos((y - 2.05) / .5 * Math.PI / 2)), .7); bp.push(new Vector2(Math.max(r, j === 30 ? 0 : .002), y)); }
+    const bp = []; for (let j = 0; j <= 48; j++) { const y = j / 48 * 2.5; const r = y < 2.05 ? .19 : .19 * Math.pow(Math.max(0, Math.cos((y - 2.05) / .48 * Math.PI / 2)), .7); bp.push(new Vector2(Math.max(r, j === 48 ? 0 : .002), y)); }
     const bg = new Group(); bg.position.set(0, .05, side * .66); inner.add(bg);
-    bg.add(new Mesh(new LatheGeometry(bp, 28), white));
-    const cap = new Mesh(new CylinderGeometry(.193, .193, .16, 28, 1, true), navy); cap.position.y = 1.95; bg.add(cap);
-    const band2 = new Mesh(new CylinderGeometry(.193, .193, .05, 28, 1, true), orange); band2.position.y = .3; bg.add(band2);
-    const bb = new Mesh(new LatheGeometry([new Vector2(.11, .02), new Vector2(.13, -.08), new Vector2(.18, -.24)], 20), metal); bg.add(bb);
+    bg.add(new Mesh(new LatheGeometry(bp, 48), white));
+    const btip = new Mesh(new ConeGeometry(.03, .08, 16), chrome); btip.position.y = 2.5; bg.add(btip);
+    const cap = new Mesh(new CylinderGeometry(.193, .193, .16, 48, 1, true), navy); cap.position.y = 1.95; bg.add(cap);
+    const band2 = new Mesh(new CylinderGeometry(.193, .193, .05, 48, 1, true), orange); band2.position.y = .3; bg.add(band2);
+    [.62, 1.4].forEach(y => { const r = new Mesh(new TorusGeometry(.193, .006, 6, 48), chrome); r.rotation.x = Math.PI / 2; r.position.y = y; bg.add(r); });
+    bg.add(new Mesh(new LatheGeometry([new Vector2(.11, .02), new Vector2(.13, -.08), new Vector2(.18, -.24)], 32), metal));
     [.55, 1.75].forEach(y => { const st = new Mesh(new BoxGeometry(.05, .06, .3), metal); st.position.set(0, y, -side * .3); bg.add(st); });
-    bflames.push(bg);
   });
-  // flame
+  // flame: white-hot core, turbulent flicker and shock diamonds
   flameMat = new ShaderMaterial({
     uniforms: { time: { value: 0 }, th: { value: 0 } },
     vertexShader: `varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
-    fragmentShader: `varying vec2 vUv;uniform float time,th;void main(){float y=vUv.y;float fl=.82+.18*sin(time*55.+y*18.)*sin(time*31.);
-      float dia=.7+.6*pow(max(0.,sin(y*32.-1.2)),10.)*(1.-smoothstep(.15,.6,y));
-      float a=pow(1.-y,1.7)*fl*dia*min(th,1.4);
-      vec3 c=mix(vec3(1.,.97,.88),vec3(1.,.52,.14),smoothstep(.0,.42,y));c=mix(c,vec3(.35,.6,1.),smoothstep(.55,1.,y));gl_FragColor=vec4(c*a*.85,1.);}`,
+    fragmentShader: `varying vec2 vUv;uniform float time,th;void main(){float y=vUv.y;float x=vUv.x*6.2832;
+      float turb=.84+.16*sin(time*47.+y*22.+x*3.)*sin(time*29.-y*13.+x*2.);
+      float dia=.66+.75*pow(max(0.,sin(y*36.-1.2)),12.)*(1.-smoothstep(.12,.55,y));
+      float core=pow(max(0.,1.-y*1.6),3.);
+      float a=(pow(1.-y,1.6)*turb*dia+core*.7)*min(th,1.4);
+      vec3 c=mix(vec3(1.,.98,.93),vec3(1.,.58,.16),smoothstep(.0,.36,y));c=mix(c,vec3(.32,.56,1.),smoothstep(.52,1.,y));gl_FragColor=vec4(c*a*.85,1.);}`,
     transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide
   });
-  const cg = new ConeGeometry(.3, 2.6, 28, 1, true); cg.translate(0, 1.3, 0); cg.rotateX(-Math.PI / 2);
+  const cg = new ConeGeometry(.3, 2.6, 32, 1, true); cg.translate(0, 1.3, 0); cg.rotateX(-Math.PI / 2);
   flame = new Mesh(cg, flameMat); flame.position.z = -2.05; rocket.add(flame);
   const inner2 = new Mesh(cg, flameMat); inner2.scale.set(.45, .45, .5); flame.add(inner2);
   // booster flames, placed in rocket space (lathe z -> rocket -y)
@@ -1253,8 +1482,8 @@ function buildRocket() {
   // navigation lights: red / green on opposite fins, white strobe on the nose
   const navTex = glowTexture('rgba(255,255,255,1)', 'rgba(255,255,255,.25)');
   const mk = (col, pos, sz) => { const sp = new Sprite(new SpriteMaterial({ map: navTex, color: col, transparent: true, depthWrite: false, blending: AdditiveBlending })); sp.position.copy(pos); sp.scale.set(sz, sz, 1); inner.add(sp); return sp; };
-  rocket.userData.nav = [mk(0xff3b3b, finTips[0], .55), mk(0x2dff9a, finTips[2], .55), mk(0xffffff, new Vector3(0, 3.38, 0), .7)];
-  rocket.userData.heat = heat;
+  rocket.userData.nav = [mk(0xff3b3b, finTips[0], .55), mk(0x2dff9a, finTips[2], .55), mk(0xffffff, new Vector3(0, 3.42, 0), .7)];
+  rocket.userData.heat = heat; rocket.userData.hotRim = hotRim;
   nozzleLight = new PointLight(0xff8a3a, 0, 16, 1.6); nozzleLight.position.z = -2.6; rocket.add(nozzleLight);
   rocket.scale.setScalar(RS);
   rocket.visible = false;
@@ -1343,7 +1572,7 @@ function buildPath() {
   frames = stopFrames();
   if (planets.length) buildIndiaLights();
   if (renderer) buildConstellation();
-  placeSkillCues();
+  placeSkillCues(); placeEarth();
   const portrait = isPortrait();
   frameLocal(frames[0], portrait ? 4 : 7.2, portrait ? 1.8 : -3.2, portrait ? -30 : -27, hoverPos);
   hoverFwd.set(...CONFIG.values[0].pos).sub(hoverPos).normalize(); hoverFwd.y += .45; hoverFwd.normalize();
@@ -1414,8 +1643,8 @@ function startLeg(to) {
   const launching = R.mode === 'hover';
   leg = { from, to, curve, dur, el: 0, shot: PLAN[to] || 'chase', flyby, end, bank: (to % 2 ? 1 : -1) * .6, camPos: camera.position.clone(), camLook: camLook.clone(), launch: launching };
   R.mode = 'leg';
-  if (launching) { state.shake = 1; gsap.to(state, { shake: 0, duration: 2.2, ease: 'power2.out' }); Sound.whoosh(2.2, .22); }
-  else Sound.whoosh(1.2, .1);
+  if (launching) { state.shake = 1; gsap.to(state, { shake: 0, duration: 2.2, ease: 'power2.out' }); }
+  if (!Sound.play('sfx-flyby', { vol: launching ? 1 : .75, when: launching ? 0 : .2 })) { if (launching) Sound.whoosh(2.2, .22); else Sound.whoosh(1.2, .1); }
   hideTagline(); hideFinale(); playConstellation(false); rings.forEach((R, k) => hideRing(k + 1));
   bird.visible = false;
 }
@@ -1432,7 +1661,7 @@ function updateLeg(dt, t) {
   basis(R.fwd);
   SHOTS[L.shot].fn(_dp, _dl, R.pos, R.fwd, t, L);
   // the tagline starts rising while the planet is still approaching
-  if (ul >= .7 && L.to >= 1 && L.to <= CONFIG.values.length) showTagline(L.to);
+  if (ul >= .85 && L.to >= 1 && L.to <= CONFIG.values.length) showTagline(L.to);   // once the camera has mostly settled into the planet's framing
   const wIn = smooth(0, .24, ul), wOut = smooth(.68, 1, ul);
   _dp.lerpVectors(L.camPos, _dp, wIn); _dl.lerpVectors(L.camLook, _dl, wIn);
   stopCam(L.to, t, _sp, _sl);
@@ -1442,7 +1671,7 @@ function updateLeg(dt, t) {
   { const d = _dp.distanceTo(R.pos), min = 11; if (d < min) _dp.sub(R.pos).multiplyScalar(min / Math.max(d, .001)).add(R.pos); }
   state.p = L.from + (L.to - L.from) * ul;
   state.fovPunch = Math.sin(ul * Math.PI) * 5;
-  state.legWarp = REDUCED ? 0 : Math.sin(ul * Math.PI) * .2;
+  state.legWarp = REDUCED ? 0 : Math.sin(ul * Math.PI) * .085;
   if (ul >= 1) arrive();
 }
 
@@ -1488,6 +1717,7 @@ function updateRocket(dt, t) {
   nozzleLight.intensity = R.throttle * 30;
   rocket.userData.bf.forEach(m => m.scale.set(.5, .5, .35 + R.throttle * .45 + Math.sin(t * 37) * .03));
   rocket.userData.heat.opacity = .25 + R.throttle * .45;
+  rocket.userData.hotRim.material.opacity = .35 + R.throttle * .5;
   const nav = rocket.userData.nav, blink = (Math.sin(t * 5) > .55) ? 1 : .12, strobe = ((t * 1.1) % 1) < .06 || (((t * 1.1) % 1) > .14 && ((t * 1.1) % 1) < .2) ? 1 : 0;
   nav[0].material.opacity = blink; nav[1].material.opacity = blink; nav[2].material.opacity = strobe;
   R.prevNozzle.copy(R.nozzle);
@@ -1539,6 +1769,7 @@ function frame(now) {
   updateBird(dt, t);
   updateSkillCues(dt, t);
   updateRings(dt);
+  updateEarth(dt, t);
   if (constel && constel.group.visible) { constel.sm.uniforms.prog.value = constel.prog; constel.sm.uniforms.time.value = t; constel.lg.setDrawRange(0, Math.floor(constel.prog * constel.n)); }
   finish.uniforms.time.value = t;
   finish.uniforms.ca.value = .001 + state.warp * .012 + (leg ? .0012 : 0);
@@ -1552,7 +1783,9 @@ function frame(now) {
 function openDoor() {
   if (entranceTl) { entranceTl.progress(1).kill(); entranceTl = null; }
   state.rendering = true; state.t0 = performance.now();
-  Sound.whoosh(2.6); Sound.riser(3.2); Sound.startDrone(); Sound.startEngine();
+  if (Sound.play('sfx-door', { vol: .95 })) Sound.play('sfx-warp', { when: 1.0, vol: .9 }); else { Sound.whoosh(2.6); Sound.riser(3.2); }
+  if (!Sound.startAmbient()) Sound.startDrone();
+  Sound.startEngine();
   if (rocket) { rocket.visible = true; R.mode = 'intro'; }
   const tl = gsap.timeline();
   if (REDUCED || !renderer) {
@@ -1580,7 +1813,7 @@ function openDoor() {
     .to(state, { warp: 1, duration: .9, ease: 'power2.in' }, 1.0)
     .to(state, { intro: 1, duration: 3.6, ease: 'expo.out' }, 1.3)
     .to(state, { rIntro: 1, duration: 4.2, ease: 'power2.inOut' }, 1.1)
-    .add(() => Sound.whoosh(1.4, .16), 2.6)
+    .add(() => { if (!Sound.has('sfx-warp')) Sound.whoosh(1.4, .16); }, 2.6)
     .to(state, { warp: 0, duration: 2.0, ease: 'power3.out' }, 2.1)
     .add(afterDoor, 3.4);
 }
@@ -1592,6 +1825,7 @@ function afterDoor() {
   if (bird.userData) { bird.visible = true; bird.userData.u = .3; bird.userData.hist.length = 0; }
   $('#top').classList.add('show');
   current = 0; setAccent(0);
+  Sound.vo('vo-welcome', .3);
   startTour();
 }
 
@@ -1621,7 +1855,8 @@ function onArrive(i) {
   tourCall?.kill();
   if (i >= 1 && i <= CONFIG.values.length) {
     showTagline(i);
-    tourCall = gsap.delayedCall(CONFIG.tour.hold + (REDUCED || !renderer ? 1 : 0), () => go(i + 1));
+    const hold = Math.max(CONFIG.tour.hold, Sound.dur('vo-' + i) + .1);   // let the voice-over finish its line
+    tourCall = gsap.delayedCall(hold + (REDUCED || !renderer ? 1 : 0), () => go(i + 1));
   } else if (i === N_STOPS - 1) {
     letterbox(false);
     showFinale(); showAllRings();
@@ -1651,7 +1886,9 @@ function showTagline(i) {
   gsap.killTweensOf([el, '#tag .in', '#tag .mask>span', '#chip']);
   el.classList.add('show'); gsap.set(el, { opacity: 1 }); gsap.set('#tag .in', { y: 0 }); gsap.set('#chip', { opacity: 1, x: 0 });
   fitLines();
-  popSkillCue(i); showRing(i); if (sk) Sound.skill(v.skill);
+  popSkillCue(i); showRing(i);
+  if (sk && !Sound.play('sfx-' + v.skill, { vol: .7 })) Sound.skill(v.skill);
+  Sound.vo('vo-' + i, .35);
   if (REDUCED) return;
   gsap.fromTo('#chip', { opacity: 0, x: -16 }, { opacity: 1, x: 0, duration: .8, ease: 'expo.out' });
   gsap.fromTo('#tag .mask>span', { yPercent: 110 }, { yPercent: 0, duration: 1.1, stagger: .12, ease: 'expo.out', delay: .05 });
@@ -1673,6 +1910,7 @@ function hideTagline() {
 }
 function showFinale() {
   const l = $('#launch'); gsap.killTweensOf(l); l.classList.add('show'); gsap.set(l, { opacity: 1 });
+  Sound.play('sfx-finale', { vol: .85, when: .3 }); Sound.vo('vo-finale', 1.4);
   if (!REDUCED) gsap.fromTo('#launch .in > *', { y: 22, opacity: 0 }, { y: 0, opacity: 1, duration: 1.1, stagger: .1, ease: 'expo.out', delay: .4 });
 }
 function hideFinale() {
@@ -1791,14 +2029,16 @@ function bootStep(p, label) {
 }
 async function boot() {
   bootStep(.3, 'Loading star charts'); await nextFrame();
-  $('#srValues').innerHTML = '<h2>SKAI Space</h2>' + CONFIG.values.map(v => `<p>${SKILLS[v.skill] ? SKILLS[v.skill].name + ': ' : ''}${v.line.join(' ')}</p>`).join('') + '<p><a href="' + CONFIG.ctaUrl + '">Visit skaispace.ai</a></p>';
+  $('#srValues').innerHTML = '<h2>SKAI Space</h2><p>2040. The jobs of tomorrow don’t have names yet. How do you prepare for a world no one can map?</p>' + CONFIG.values.map(v => `<p>${SKILLS[v.skill] ? SKILLS[v.skill].name + ': ' : ''}${v.line.join(' ')}</p>`).join('') + '<p><a href="' + CONFIG.ctaUrl + '">Visit skaispace.ai</a></p>';
   const ok = initThree();
   bootStep(.7, 'Calibrating optics'); await nextFrame();
   if (ok) {
     state.fovBase = isPortrait() ? 50 : 38;
     camera.fov = state.fovBase; camera.updateProjectionMatrix();
     state.intro = 0; current = 0; updateCamera(0, 0); current = -1; camera.updateMatrixWorld();
-    rings.forEach(R => { if (R) R.mesh.visible = true; }); renderer.compile(scene, camera); rings.forEach(R => { if (R) R.mesh.visible = false; });
+    rings.forEach(R => { if (R) R.mesh.visible = true; }); earth.g.visible = true;
+    renderer.compile(scene, camera);
+    rings.forEach(R => { if (R) R.mesh.visible = false; }); earth.g.visible = false;
     requestAnimationFrame(frame);
   } else {
     state.rendering = false;
@@ -1808,7 +2048,7 @@ async function boot() {
   entranceTl?.pause(0);   // the lock's entrance waits for the loading screen
   bootStep(.92, 'Sealing the bay');
   await Promise.race([document.fonts ? document.fonts.ready : null, new Promise(r => setTimeout(r, 2500))]);
-  bootStep(1); await new Promise(r => setTimeout(r, 280));
+  bootStep(1); Sound.preload(); await new Promise(r => setTimeout(r, 280));
   const ld = $('#boot'); ld.classList.add('done'); setTimeout(() => ld.remove(), 700);
   entranceTl?.play(0);
   if (location.hash === '#space') { Sound.on = false; syncSound(); grant(true); }

@@ -73,6 +73,27 @@ Tilt follow (launch), Chase, Low angle, Side track, Reverse, Orbit, Flyby. Each 
 - Taglines and skills live in `CONFIG.values[]` (`line`, `skill`); skill names and colours in `SKILLS`.
 - Only show numbers with a source. The India lights on the last planet are approximate state-capital positions, not a list of active states.
 
+## Sound
+- Two voices: the narrator (Rudra, Indian English, cinematic) speaks the welcome, each tagline and the finale; the ship's computer (SKAI Bot) speaks only at the lock. Never more than one voice line at a time.
+- Music is one ambient loop that fades in as the door opens and ducks (to ~35%) under every voice line.
+- Every beat has one sound: scan, chime, door, warp, a whoosh per flight, a signature per skill (servos, data chirps, typing, gears), the finale sting. No sound plays without a visual reason.
+- Mute is the Sound pill; `#space` starts muted. Reduced motion keeps sound.
+
+## Mission briefing (the hook)
+Between the scan and the door, the ship's computer runs a briefing on a HUD panel over the door (`runBriefing` in main.js), timed to the voice-over:
+1. `DESTINATION` · **2040**, the cursor blinks twice (two beeps). SKAI Bot: "Destination: twenty forty."
+2. `SCANNING JOB MARKET`: today's job titles decode into glyphs and settle on **UNKNOWN**; `ROUTE: UNKNOWN`. Narrator: "The jobs of tomorrow don't have names yet."
+3. The panel clears to one question: "How do you prepare for a world **no one can map?**" Narrator asks it; no music yet.
+4. `PLOTTING ROUTE`: a line draws through four nodes (the four skills, in their colours) as SKAI Bot names them ("Plotting route: robotics, AI and data, coding, mechanics."), each node lighting as it is named; then the door opens and the tour plays as the answer. Wide screens draw the route left to right; narrow screens (< 600px) draw it top to bottom with labels beside the nodes.
+Every line on the briefing screen is spoken; on phones the door's light sweep is off (it repaints the whole screen).
+Skip intro ends it at any point. Job titles are present-day examples only; never claim which jobs will or won't exist.
+
+## Rocket
+Hero model built in code (`buildRocket`): gloss clear-coat paint over a 2048px livery (SKAI, SK-1 · LAUNCHPAD, BY CONVEGENIUS, hazard band) with a bump map for panel seams and rivets; chrome nose tip and interstage rings; beveled swept fins with orange leading edges; portholes with chrome rims and a warm cabin glow; a cooled main bell with a hot rim and four steering engines; side boosters with chrome nose caps. The flame has a white-hot core, turbulence and shock diamonds. No national flag or emblem on the livery.
+
+## Earth
+- Seen only at the start and during the launch flight; fades out before the first planet. Low in frame (bottom third), dawn line across it, India's lights on the night side. Never in planet shots or the finale.
+
 ## Performance
 - Quality levels 2/1/0 (`setQuality`): pixel ratio 1.6/1.25/1; bloom full / half resolution / off; grain and lens flare off at 0; cloud and aurora shaders off at 0. Desktops start at 2, phones and tablets at 1, low-end devices (≤4 cores or ≤3 GB) one level lower; any device drops a level if the first frames average under ~38 fps.
 - Resize/rotation: the renderer resizes at once; stop frames, constellation and cue spots rebuild once, 180 ms after it settles. Sound suspends while the tab is hidden; rendering already pauses.
