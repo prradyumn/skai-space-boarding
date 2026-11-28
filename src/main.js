@@ -23,6 +23,15 @@ import { CONFIG, SKILLS, SKILL_GROUPS } from './config.js';
 const KIOSK = location.hash === '#kiosk';
 // ?capture: fixed full quality for recording the promo video frame by frame (no adaptive resolution)
 const CAPTURE = new URLSearchParams(location.search).has('capture');
+const STATS = new URLSearchParams(location.search).has('stats');   // ?stats: resolution, tier and fps on screen
+let statsEl = null, statsN = 0, statsT = 0;
+function updateStats(raw) {
+  statsN++; statsT += raw; if (statsT < .5) return;
+  if (!statsEl) { statsEl = document.createElement('div'); statsEl.id = 'stats'; document.body.appendChild(statsEl); }
+  const pr = renderer.getPixelRatio(), c = renderer.domElement;
+  statsEl.textContent = `${Math.round(statsN / statsT)} fps · ${pr.toFixed(2)}x ${Q.mode} (${c.width}×${c.height}) · tier ${Q.level}${Q.weak ? ' weak' : ''} · sharpen ${finish.uniforms.sharp.value}\n${Q.gpu || ''}`;
+  statsN = 0; statsT = 0;
+}
 // the offline single-file build embeds its media and lists it here (see scripts/build-single.mjs)
 const assetUrl = u => (window.SKAI_ASSETS && window.SKAI_ASSETS[u]) || u;
 const $ = s => document.querySelector(s);
@@ -776,12 +785,18 @@ let composer, bloom, finish, fxaa = null, lensflare, bakeSky = () => {};
 // level: which effects are on (2 all, 1 lighter, 0 minimal) · pr: render resolution, adjusted every second to hold the frame rate
 const Q = { level: 2, pr: 1, maxPr: 2, minPr: 1, acc: 0, frames: 0, up: 0, cool: 2, touch: false };
 const FinishShader = {
-  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, ca: { value: .0015 }, vig: { value: .42 }, grain: { value: .035 } },
+  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, ca: { value: .0015 }, vig: { value: .42 }, grain: { value: .035 }, sharp: { value: 0 }, texel: { value: new Vector2() } },
   vertexShader: `varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
-  fragmentShader: `uniform sampler2D tDiffuse;uniform float time,ca,vig,grain;varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse;uniform float time,ca,vig,grain,sharp;uniform vec2 texel;varying vec2 vUv;
     float h(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}
     void main(){vec2 d=vUv-.5;float r=dot(d,d);
       vec3 c=vec3(texture2D(tDiffuse,vUv-d*ca*r*8.).r,texture2D(tDiffuse,vUv).g,texture2D(tDiffuse,vUv+d*ca*r*8.).b);
+      if(sharp>0.){   // contrast-adaptive sharpening (after AMD CAS): strong on soft detail, gentle on edges that are already hard
+        vec3 a=texture2D(tDiffuse,vUv-vec2(0.,texel.y)).rgb,b=texture2D(tDiffuse,vUv-vec2(texel.x,0.)).rgb,
+             e=texture2D(tDiffuse,vUv+vec2(texel.x,0.)).rgb,f=texture2D(tDiffuse,vUv+vec2(0.,texel.y)).rgb;
+        vec3 mn=min(min(min(a,b),min(e,f)),c),mx=max(max(max(a,b),max(e,f)),c);
+        vec3 w=sqrt(clamp(min(mn,1.-mx)/max(mx,vec3(1e-4)),0.,1.))*(-1./mix(8.,5.,sharp));
+        c=clamp((c+(a+b+e+f)*w)/(1.+4.*w),0.,1.);}
       c*=1.-vig*smoothstep(.08,.55,r);
       c+=(h(vUv*vec2(1920.,1080.)+fract(time)*97.)-.5)*grain;
       gl_FragColor=vec4(c,1.);}`
@@ -798,7 +813,7 @@ const WhipShader = {
 let whip = null;
 function buildPost() {
   const touch = Q.touch = matchMedia('(hover: none)').matches || innerWidth < 760;
-  const weak = (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 3;
+  const weak = Q.weak = weakGPU() || (navigator.deviceMemory || 8) <= 2;
   // anti-aliasing: 4x multisampling on desktop (the composer's own targets), a cheap FXAA pass on phones
   // anti-aliasing: FXAA on phones and standard-density screens; Retina-class screens are already supersampled.
   // No MSAA: the lens flare copies from the render target, which is illegal on a multisampled buffer
@@ -816,10 +831,28 @@ function buildPost() {
   Q.maxPr = Math.min(devicePixelRatio, touch ? 2 : 1.75); Q.minPr = Math.min(devicePixelRatio, 1);
   Q.pr = Math.min(Q.maxPr, touch ? (weak ? 1.25 : 1.5) : weak ? 1.5 : 1.75);
   if (CAPTURE) Q.pr = Q.maxPr;
+  // phones: full sharpness while parked at a planet (the shot people read), the lighter level while flying
+  Q.park = touch && !CAPTURE ? Q.maxPr : 0; Q.mode = 'fly';
+  finish.uniforms.sharp.value = touch ? .6 : 0;   // phones render under native size: sharpen it back
   renderer.setPixelRatio(Q.pr);
   setQuality(CAPTURE ? 2 : touch ? (weak ? 0 : 1) : weak ? 1 : 2);
 }
-function setPR(pr) { Q.pr = pr; renderer.setPixelRatio(pr); applySize(); }
+function setPR(pr) { Q.pr = pr; applyPR(); }
+function applyPR() {
+  const pr = Q.mode === 'park' ? Math.max(Q.pr, Q.park) : Q.pr;
+  if (Math.abs(renderer.getPixelRatio() - pr) > .01) { renderer.setPixelRatio(pr); applySize(); }
+}
+// 'park' at a planet or the finale, 'fly' between them; switched on the tagline flash so the resize is never seen
+function setResMode(m) { if (!renderer || Q.mode === m) return; Q.mode = m; Q.acc = 0; Q.frames = 0; Q.cool = 1; applyPR(); }
+// low-end mobile GPUs by name (most browsers expose it; iPhones report "Apple GPU" and are never flagged)
+function weakGPU() {
+  try {
+    const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = (ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) || '';
+    Q.gpu = name;
+    return /Mali-(4|T|G5[0-2]|G31)|Adreno \(TM\) [2-5]\d\d|PowerVR|SwiftShader|llvmpipe|Intel\(R\) HD Graphics [2-5]/i.test(name);
+  } catch (e) { return false; }
+}
 function setQuality(l) {
   Q.level = l;
   bloom.enabled = l > 0; bloom.strength = l === 2 ? .6 : .5;
@@ -836,6 +869,7 @@ function applySize() {
   renderer.setSize(innerWidth, innerHeight); composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight);
   bloom.setSize(innerWidth * pr * bs, innerHeight * pr * bs);
   if (fxaa) fxaa.material.uniforms.resolution.value.set(1 / (innerWidth * pr), 1 / (innerHeight * pr));
+  finish.uniforms.texel.value.set(1 / (innerWidth * pr), 1 / (innerHeight * pr));
   scene.traverse(o => { const u = o.material && o.material.uniforms; if (u && u.pr) u.pr.value = pr; });   // point sprites keep their size
 }
 // adaptive resolution: every second, step down (or up, after 3 smooth seconds) to hold ~50-60 fps;
@@ -846,7 +880,12 @@ function watchFrameRate(raw) {
   Q.acc += raw; Q.frames++;
   if (Q.acc < 1) return;
   const ft = Q.acc / Q.frames; Q.acc = 0; Q.frames = 0;
+  Q.fps = Math.round(1 / ft);
   if (Q.cool > 0) { Q.cool--; return; }
+  if (Q.mode === 'park' && Q.park > Q.pr) {   // parked at full sharpness: if that is too slow, lower only the parked level
+    if (ft > 1 / 45) { Q.park = Math.max(Q.pr, +(Q.park * .87).toFixed(2)); applyPR(); Q.cool = 2; }
+    return;
+  }
   if (ft > 1 / 48) {
     if (Q.pr > Q.minPr + .01) setPR(Math.max(Q.minPr, +(Q.pr * (ft > 1 / 30 ? .7 : .85)).toFixed(2)));   // far too slow: a bigger step
     else if (Q.level > 0) setQuality(Q.level - 1);
@@ -2176,6 +2215,7 @@ const _dp = new Vector3(), _dl = new Vector3(), _sp = new Vector3(), _sl = new V
 const camLook = new Vector3();
 
 function startLeg(to) {
+  setResMode('fly');
   const from = current;
   const end = legEnd(to);
   const P0 = R.pos.clone(), f0 = R.fwd.clone();
@@ -2354,6 +2394,7 @@ function frame(now) {
   finish.uniforms.time.value = t;
   finish.uniforms.ca.value = (Q.touch ? 0 : .0004) + state.warp * .012 + (leg ? .0005 : 0);   // fringe mostly for the warp only
   watchFrameRate(raw);
+  if (STATS) updateStats(raw);
   composer.render();
 }
 
@@ -2442,6 +2483,7 @@ function onArrive(i) {
     const hold = Math.max(CONFIG.tour.hold, Sound.dur('vo-' + i) + .1);   // let the voice-over finish its line
     tourCall = gsap.delayedCall(hold + (REDUCED || !renderer ? 1 : 0), () => go(i + 1));
   } else if (i === N_STOPS - 1) {
+    setResMode('park');
     letterbox(false);
     startRoute(REDUCED || !renderer);
   }
@@ -2457,6 +2499,7 @@ function fitLines() {
 }
 function showTagline(i) {
   if (tagShown === i) return; tagShown = i;
+  setResMode('park');
   const v = CONFIG.values[i - 1], el = $('#tag');
   setAccent(i);
   $('#tA').textContent = v.line[0]; $('#tB').textContent = v.line[1] || '';
